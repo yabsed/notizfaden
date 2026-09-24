@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 export default defineConfig({
-  plugins: [react(), {
+  plugins: [svelte(), {
     name: 'notizfaden-offline-shell',
     apply: 'build',
     generateBundle(_, bundle) {

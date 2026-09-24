@@ -1,5 +1,5 @@
 import Dexie, { liveQuery, type Table } from 'dexie';
-import { useEffect, useState } from 'react';
+import { readable } from 'svelte/store';
 import { newNote, uid, type LocalNote, type NoteBody } from './model';
 class Notebook extends Dexie {
   notes!: Table<LocalNote, [string, string]>;
@@ -33,14 +33,11 @@ export async function seed() {
     await db.settings.put({ key: 'welcome', value: '1' });
   });
 }
-export function useNotes(scope: string) {
-  const [state, setState] = useState<{ scope: string; notes: LocalNote[] }>({ scope: '', notes: [] });
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const subscription = liveQuery(() => db.notes.where('scope').equals(scope).toArray()).subscribe({ next: notes => setState({ scope, notes }), error: () => setError('기기에 메모를 저장할 수 없습니다. 저장 공간과 브라우저 설정을 확인해 주세요.') });
+export function notesFor(scope: string) {
+  return readable<{ notes: LocalNote[]; error: string }>({ notes: [], error: '' }, set => {
+    const subscription = liveQuery(() => db.notes.where('scope').equals(scope).toArray()).subscribe({ next: notes => set({ notes, error: '' }), error: () => set({ notes: [], error: '기기에 메모를 저장할 수 없습니다. 저장 공간과 브라우저 설정을 확인해 주세요.' }) });
     return () => subscription.unsubscribe();
-  }, [scope]);
-  return { notes: state.scope === scope ? state.notes : [], error };
+  });
 }
 // Each edit commits immediately. Reading within the transaction prevents an
 // in-flight sync acknowledgement from resetting the next edit's revision.

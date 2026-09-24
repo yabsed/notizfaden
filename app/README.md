@@ -2,6 +2,8 @@
 
 나를 위해 적고, 가끔은 함께. 빠른 입력과 카드형 메모를 기반으로 만든 개인 메모 + 선택적 공유 앱입니다.
 
+프런트엔드는 Svelte 5 + TypeScript + Vite, 서버는 Haskell + Servant + PostgreSQL입니다.
+
 기존 설치본의 메모와 로그인을 유지하기 위해 Android 패키지 ID(`io.teum.notes`), 브라우저 저장소 키, 기본 개발 DB 이름은 이전 값을 사용합니다. 앱에 표시되는 이름은 Notizfaden입니다.
 
 ## 실행
@@ -57,7 +59,7 @@ sudo dnf install gcc gcc-c++ make gmp-devel ncurses-devel libpq-devel postgresql
 
 ## Android
 
-`client/android`는 생성된 실제 Capacitor Android 프로젝트입니다. 웹과 동일한 React 화면과 저장/동기화 코드를 사용합니다.
+`client/android`는 생성된 실제 Capacitor Android 프로젝트입니다. 웹과 동일한 Svelte 화면과 저장/동기화 코드를 사용합니다.
 
 ```sh
 cd app/client
@@ -94,9 +96,12 @@ python3 server/test/api.py
 
 브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API 검사는 임의의 테스트 계정을 만들고 공개 상태를 마지막에 해제/휴지통 처리합니다. 서버 검사 주소는 `NOTIZFADEN_TEST_API`로 바꿀 수 있습니다.
 
+`npm run check`는 Svelte 컴포넌트와 TypeScript를 검사합니다. `npm run build`에도 이 검사가 포함됩니다.
+
 ## 구조와 참고 코드
 
-- `client/src/components.tsx`: googlekeepclone의 TodoItem, ContentList, TodoCreate 구조를 현재 React/TypeScript와 기본 HTML 컨트롤로 옮겼습니다. 배열을 직접 변경하던 부분은 불변 업데이트와 항목 UUID로 바꿨습니다.
+- `client/src/main.ts`, `App.svelte`: Svelte 앱 시작, 화면 탐색, 계정 상태와 동기화.
+- `client/src/components/*.svelte`: 메모 카드, 편집기, 계정/공개 메모 대화상자. googlekeepclone의 TodoItem, ContentList, TodoCreate 구성을 참고했습니다. Svelte 5 runes와 입력 바인딩을 사용하며, 편집 내용의 일반 객체 스냅샷을 순서대로 자동 저장합니다.
 - `client/src/model.ts`, `style.css`: googlekeepclone의 테마 색상, 카드/입력창 치수, 서랍과 폰트 자산을 사용했습니다. 원본 MIT 라이선스는 `THIRD_PARTY_LICENSES.txt`, 폰트 라이선스는 `client/public/fonts`에 있습니다.
 - `client/src/db.ts`, `api.ts`: 로컬 저장, 전송 대기, 재시도, revision 충돌 보존.
 - `server/src/Main.hs`: Servant 타입 기반 HTTP API, 암호 해시, 서버 세션, PostgreSQL 트랜잭션과 권한 검사.
@@ -113,4 +118,4 @@ cd app
 npm run android:build -- http://YOUR_PC_IP:5173
 ```
 
-출력: `client/android/app/build/outputs/apk/debug/app-debug.apk`. URL을 생략하면 기기 내부 메모 기능만 사용할 수 있는 빌드가 됩니다. 현재 테스트 APK는 `http://192.168.0.90:5173`의 개발 서버에 연결하도록 빌드했습니다. 실제 기기/에뮬레이터가 연결되어 있지 않아 APK 설치 후 한글 키보드와 시스템 뒤로 가기는 기기에서 추가 확인이 필요합니다.
+출력: `client/android/app/build/outputs/apk/debug/app-debug.apk`. URL을 생략하면 기기 내부 메모 기능만 사용할 수 있는 빌드가 됩니다. 실제 기기/에뮬레이터가 연결되어 있지 않아 APK 설치 후 한글 키보드와 시스템 뒤로 가기는 기기에서 추가 확인이 필요합니다.

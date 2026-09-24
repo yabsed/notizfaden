@@ -10,6 +10,7 @@ export const uid = () => crypto.randomUUID();
 export const emptyBody = (kind: Kind = 'text'): NoteBody => ({ title: '', content: '', kind, items: [], color: 'default', labels: [], pinned: false, archived: false, trashed: false, sourceId: null });
 export const newNote = (scope: string, kind: Kind = 'text'): LocalNote => ({ id: uid(), scope, body: emptyBody(kind), visibility: 'private', revision: 0, updatedAt: new Date().toISOString(), author: { id: scope, name: '나' }, dirty: true, mutationId: uid() });
 export const hasContent = (b: NoteBody) => !!(b.title.trim() || b.content.trim() || b.items.some(i => i.text.trim()));
+export function noteStyle(color: string) { const c = colors[color] || colors.default; return `--card-light:${c.light};--card-dark:${c.dark}`; }
 // Color tokens and typography adapted from googlekeepclone/web/src/theme.js (MIT).
 export const colors: Record<string, { name: string; light: string; dark: string }> = {
   default: { name: '기본', light: '#ffffff', dark: '#202124' },

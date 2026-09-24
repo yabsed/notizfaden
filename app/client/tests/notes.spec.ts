@@ -85,6 +85,13 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await page.locator('.sync-status').click();
   await expect(page.getByText('두 번째 기기에서 수정한 생각', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
+  // A failed visibility request must leave the control at the server-confirmed value.
+  await page.route('**/api/notes/*/visibility', route => route.fulfill({ status: 503, json: { message: '공개 변경 실패' } }));
+  await page.getByRole('combobox', { name: '공개 범위' }).selectOption('public');
+  await expect(page.getByRole('alert')).toContainText('공개 변경 실패');
+  await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
+  await expect(page.getByRole('button', { name: '공개 링크 복사', exact: true })).toHaveCount(0);
+  await page.unroute('**/api/notes/*/visibility');
   await page.getByRole('combobox', { name: '공개 범위' }).selectOption('public');
   await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('public');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
@@ -103,6 +110,11 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await visitor.getByRole('button', { name: /둘러보기/ }).click();
   await expect(visitor.getByTestId('note-card').filter({ hasText: '두 기기에서 이어지는 생각' })).toHaveCount(0);
+  // Changing the store's account scope must remove the previous account's notes.
+  await page.getByRole('button', { name: '계정', exact: true }).click();
+  await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+  await expect(page.getByTestId('note-card')).toHaveCount(8);
+  await expect(page.getByText('두 기기에서 이어지는 생각', { exact: true })).toHaveCount(0);
   await device.close(); await visitorContext.close();
 });
 
