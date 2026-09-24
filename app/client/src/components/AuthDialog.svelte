@@ -30,3 +30,55 @@
   </form>
   <button class="auth-switch" onclick={() => { register = !register; error = ''; }}>{register ? '이미 계정이 있어요 · 로그인' : '처음 오셨나요? 계정 만들기'}</button>
 </Modal>
+
+<style>
+  :global(.account-dialog) form > label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+    margin: 16px 0;
+  }
+
+  :global(.account-dialog) input:not([type=checkbox]) {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  :global(.account-dialog) input:focus {
+    border-color: #4b5f88;
+  }
+
+  :global(.account-dialog) .import-check {
+    flex-direction: row;
+    align-items: center;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+
+  .primary-button {
+    background: #4b5f88;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 44px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 22px;
+  }
+
+  .auth-switch {
+    font-size: 12px;
+    color: var(--icon);
+    width: 100%;
+    margin-top: 22px;
+    text-align: center;
+  }
+</style>

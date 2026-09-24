@@ -101,3 +101,253 @@
     </div><span class="save-caption">{saving ? '저장 중…' : '기기에 저장됨'}</span><button class="text-button" onclick={close}>닫기</button></div>
   </div>
 </Modal>
+
+<style>
+  :global([data-theme=dark]) .editor {
+    background: var(--card-dark);
+    color: var(--fg);
+  }
+
+  .editor {
+    padding: 14px 0 0;
+    background: var(--card-light);
+  }
+
+  .editor-title {
+    display: flex;
+    align-items: center;
+    padding: 0 18px 6px 24px;
+    gap: 10px;
+  }
+
+  .editor-title input {
+    font-size: 19px;
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: 0;
+    padding: 10px 0;
+    color: inherit;
+  }
+
+  .editor textarea {
+    padding: 8px 24px 22px;
+    width: 100%;
+    resize: none;
+    display: block;
+    min-height: 180px;
+    max-height: 48dvh;
+    line-height: 1.85;
+    font-size: 15px;
+    border: 0;
+    background: none;
+    color: inherit;
+    outline: 0;
+  }
+
+  .editor > :global(.palette) {
+    padding: 12px 24px;
+  }
+
+  .editor-labels {
+    margin: 0 24px 16px;
+  }
+
+  .editor-toolbar {
+    border-top: 1px solid #8882;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+  }
+
+  .editor-toolbar > div {
+    display: flex;
+    gap: 3px;
+  }
+
+  .save-caption {
+    font-size: 10px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .editor-toolbar .text-button {
+    min-width: 64px;
+  }
+
+  .sharing-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .sharing-row > label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .sharing-row select {
+    background: transparent;
+    color: inherit;
+    border: none;
+    padding: 6px 3px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .sharing-row select:disabled {
+    opacity: .75;
+    cursor: default;
+  }
+
+  .sharing-row > span {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .editor-checklist {
+    padding: 8px 20px 22px;
+    min-height: 170px;
+  }
+
+  .editor-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid transparent;
+  }
+
+  .editor-item:focus-within {
+    border-color: #8884;
+  }
+
+  .editor-item > input:not([type=checkbox]) {
+    flex: 1;
+    width: 0;
+    border: 0;
+    background: transparent;
+    padding: 8px 0;
+    font-size: 14px;
+    color: inherit;
+  }
+
+  .editor-item :global(.icon-button) {
+    width: 30px;
+    height: 30px;
+  }
+
+  .add-item {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 4px;
+    color: var(--icon);
+    font-size: 13px;
+  }
+
+  .tag-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 24px;
+    padding: 6px 0;
+    border-bottom: 1px solid #8884;
+  }
+
+  .tag-form input {
+    background: none;
+    border: 0;
+    min-width: 0;
+    flex: 1;
+    padding: 6px;
+  }
+
+  .tag-form button {
+    font-size: 12px;
+    padding: 6px;
+  }
+
+  .editor-mobile-head {
+    display: none;
+  }
+
+  .source-link {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 24px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--icon);
+  }
+
+  .editor > .error {
+    margin: 0 20px 12px;
+  }
+
+  @media (max-width: 600px) {
+    .editor-labels {
+      margin-top: 12px;
+    }
+
+    .editor {
+      min-height: 100%;
+      padding-top: env(safe-area-inset-top);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .editor-mobile-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .editor-title {
+      padding: 4px 15px 8px 22px;
+    }
+
+    .editor-title input {
+      font-size: 20px;
+    }
+
+    .editor textarea {
+      max-height: none;
+      min-height: 220px;
+      flex: 1;
+      padding: 10px 22px 24px;
+      font-size: 16px;
+    }
+
+    .editor-toolbar {
+      padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+      margin-top: auto;
+    }
+
+    .editor-toolbar .save-caption {
+      display: none;
+    }
+
+    .editor-toolbar > .text-button {
+      margin-left: auto;
+    }
+
+    .sharing-row {
+      padding: 12px 22px;
+      gap: 8px;
+    }
+
+    .editor-checklist {
+      flex: 1;
+    }
+  }
+</style>

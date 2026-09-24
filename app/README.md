@@ -100,11 +100,17 @@ python3 server/test/api.py
 
 ## 구조와 참고 코드
 
-- `client/src/main.ts`, `App.svelte`: Svelte 앱 시작, 화면 탐색, 계정 상태와 동기화.
-- `client/src/components/*.svelte`: 메모 카드, 편집기, 계정/공개 메모 대화상자. googlekeepclone의 TodoItem, ContentList, TodoCreate 구성을 참고했습니다. Svelte 5 runes와 입력 바인딩을 사용하며, 편집 내용의 일반 객체 스냅샷을 순서대로 자동 저장합니다.
-- `client/src/model.ts`, `style.css`: googlekeepclone의 테마 색상, 카드/입력창 치수, 서랍과 폰트 자산을 사용했습니다. 원본 MIT 라이선스는 `THIRD_PARTY_LICENSES.txt`, 폰트 라이선스는 `client/public/fonts`에 있습니다.
-- `client/src/db.ts`, `api.ts`: 로컬 저장, 전송 대기, 재시도, revision 충돌 보존.
-- `server/src/Main.hs`: Servant 타입 기반 HTTP API, 암호 해시, 서버 세션, PostgreSQL 트랜잭션과 권한 검사.
+- `client/src/main.ts`, `App.svelte`: 앱 시작, 화면 탐색과 컴포넌트 연결. 화면 구성 전용 스타일은 `App.svelte`에서 관리합니다.
+- `client/src/session.svelte.ts`: 로그인 상태, 계정 연결/로그아웃, 다른 탭의 세션 변경 처리.
+- `client/src/sync.svelte.ts`: 전송 대기와 재시도, revision 충돌 보존, 공개 범위 변경, 편집 중 보호, 주기/포커스/재접속 동기화. `createSync`는 컴포넌트 초기화 중 호출하며 해당 컴포넌트가 해제되면 타이머와 이벤트 리스너도 정리합니다.
+- `client/src/api.ts`: HTTP 요청과 API 오류 처리. `db.ts`는 IndexedDB 저장/조회와 초기 메모, `model.ts`는 타입과 순수 함수를 담당합니다.
+- `client/src/components/*.svelte`: 메모 카드, 편집기, 계정/공개 메모 대화상자와 각 컴포넌트 전용 스타일. googlekeepclone의 TodoItem, ContentList, TodoCreate 구성을 참고했습니다. Svelte 5 runes와 입력 바인딩을 사용하며, 편집 내용의 일반 객체 스냅샷을 순서대로 자동 저장합니다.
+- `client/src/style.css`: 전역 테마, 기본 요소와 공유 스타일. googlekeepclone의 테마 색상, 카드/입력창 치수, 서랍과 폰트 자산을 사용했습니다. 원본 MIT 라이선스는 `THIRD_PARTY_LICENSES.txt`, 폰트 라이선스는 `client/public/fonts`에 있습니다.
+- `server/src/Main.hs`: 서버 설정, 시작과 Servant 라우트 연결.
+- `server/src/Model.hs`: 요청/응답 타입, JSON과 DB 행 변환, 공통 API 오류 응답.
+- `server/src/Database.hs`: DB 연결과 트랜잭션 실행 기반, 스키마 초기화.
+- `server/src/Auth.hs`: 계정 생성/로그인, 암호 해시, 서버 세션과 인증.
+- `server/src/Notes.hs`: 메모 조회/저장/공개, 권한 검사와 충돌 처리. 본문 저장과 공개 변경은 동일한 트랜잭션 규칙을 사용합니다.
 - Memos의 공개 범위 및 관계별 권한 검사 원칙을 참고했습니다. Memos의 PROTECTED는 로그인 사용자 전체이므로 Friends로 재사용하지 않았습니다.
 
 비밀번호는 PBKDF2-HMAC-SHA256 600,000회로 저장하고, 서버에는 30일 세션 토큰의 SHA256 해시만 보관합니다. 클라이언트 토큰은 해당 기기의 localStorage에 있습니다. Private는 사용자 간 접근 제한이며 종단 간 암호화는 아닙니다.

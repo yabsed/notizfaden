@@ -6,6 +6,7 @@ build-type: Simple
 executable notizfaden-server
   main-is: Main.hs
   hs-source-dirs: src
+  other-modules: Auth, Database, Model, Notes
   default-language: GHC2021
   ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N2
   build-depends:

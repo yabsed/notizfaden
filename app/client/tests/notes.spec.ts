@@ -148,3 +148,35 @@ test('offline simultaneous edits keep both versions after reconnect', async ({ p
   await expect(offline.locator('.sync-status')).toHaveText('동기화됨');
   await device.close();
 });
+
+test('login and logout in another tab close dialogs and switch account storage', async ({ page, context, request }) => {
+  const username = 'tabs_' + Date.now();
+  const password = 'teum-tabs-test-password';
+  const registration = await request.post('http://localhost:8081/api/auth/register', {
+    data: { username, password }
+  });
+  expect(registration.ok()).toBeTruthy();
+
+  await page.goto('/');
+  const second = await context.newPage();
+  await second.goto('/');
+  await expect(second.getByTestId('note-card')).toHaveCount(8);
+  await second.getByRole('button', { name: 'Notizfaden에 오신 걸 환영해요 열기', exact: true }).click();
+  await expect(second.getByRole('dialog', { name: '메모 편집', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '로그인', exact: true }).click();
+  await page.getByRole('textbox', { name: '아이디', exact: true }).fill(username);
+  await page.getByLabel('비밀번호', { exact: true }).fill(password);
+  await page.getByRole('dialog').getByRole('button', { name: '로그인', exact: true }).click();
+  await expect(second.getByRole('dialog')).toHaveCount(0);
+  await expect(second.getByRole('button', { name: '계정', exact: true })).toBeVisible();
+  await expect(second.getByTestId('note-card')).toHaveCount(0);
+
+  await second.getByRole('button', { name: '계정', exact: true }).click();
+  await expect(second.getByRole('dialog', { name: '내 계정', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '계정', exact: true }).click();
+  await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+  await expect(second.getByRole('dialog')).toHaveCount(0);
+  await expect(second.getByRole('button', { name: '로그인', exact: true })).toBeVisible();
+  await expect(second.getByTestId('note-card')).toHaveCount(8);
+});

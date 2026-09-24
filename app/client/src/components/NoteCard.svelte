@@ -42,3 +42,264 @@
   </div>
   {#if palette}<div class="card-palette"><PalettePicker selected={b.color} onChange={color => { onChange?.({ color }); palette = false; }}/></div>{/if}
 </article>
+
+<style>
+  .note-card {
+    position: relative;
+    break-inside: avoid;
+    margin-bottom: 16px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--card-light);
+    padding: 18px 16px 6px;
+    transition: box-shadow .15s;
+    color: #202124;
+    overflow-wrap: anywhere;
+  }
+
+  .note-card.plain {
+    border-color: var(--line);
+    color: var(--fg);
+  }
+
+  :global([data-theme=dark]) .note-card {
+    background: var(--card-dark);
+    color: var(--fg);
+  }
+
+  .note-card:hover,
+  .note-card:focus-within {
+    box-shadow: 0 2px 5px #20212430;
+  }
+
+  .note-card h3 {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: -.25px;
+    margin-bottom: 11px;
+    padding-right: 16px;
+    pointer-events: none;
+    position: relative;
+  }
+
+  .card-open {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border-radius: 8px;
+    z-index: 0;
+  }
+
+  .card-open:focus-visible {
+    outline-offset: 2px;
+  }
+
+  .card-text {
+    font-size: 13px;
+    line-height: 1.9;
+    white-space: pre-wrap;
+    max-height: 360px;
+    overflow: hidden;
+    position: relative;
+    pointer-events: none;
+    letter-spacing: -.1px;
+  }
+
+  .pin-action {
+    position: absolute;
+    right: 5px;
+    top: 6px;
+    opacity: 0;
+    z-index: 2;
+  }
+
+  .pin-action :global(.icon-button) {
+    width: 30px;
+    height: 30px;
+    color: inherit;
+  }
+
+  .pin-action.pinned,
+  .note-card:hover .pin-action,
+  .note-card:focus-within .pin-action {
+    opacity: 1;
+  }
+
+  .card-checklist {
+    font-size: 13px;
+    line-height: 1.6;
+    position: relative;
+    pointer-events: none;
+  }
+
+  .card-checklist label {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 8px;
+    align-items: flex-start;
+    pointer-events: auto;
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    cursor: pointer;
+  }
+
+  .card-checklist input {
+    margin: 2px 0 0;
+    opacity: .85;
+  }
+
+  .completed span {
+    text-decoration: line-through;
+    opacity: .55;
+  }
+
+  .card-checklist small {
+    color: var(--muted);
+  }
+
+  .card-bottom {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 30px;
+    position: relative;
+    pointer-events: none;
+  }
+
+  .visibility {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    opacity: .56;
+    font-size: 10px;
+  }
+
+  .card-actions {
+    display: flex;
+    opacity: 0;
+    transition: opacity .15s;
+    pointer-events: auto;
+  }
+
+  .note-card:hover .card-actions,
+  .note-card:focus-within .card-actions {
+    opacity: 1;
+  }
+
+  .card-actions :global(.icon-button) {
+    width: 30px;
+    height: 30px;
+    color: inherit;
+    opacity: .7;
+  }
+
+  .author + .card-actions {
+    opacity: 1;
+  }
+
+  .card-palette {
+    position: relative;
+    margin: 3px -8px 5px;
+    padding: 6px;
+    border-top: 1px solid #0001;
+  }
+
+  .conflict-badge {
+    font-size: 11px;
+    display: block;
+    position: relative;
+    color: #9b4422;
+    margin-top: 10px;
+  }
+
+  @media (max-width: 600px) {
+    .note-card {
+      padding: 14px 12px 5px;
+      margin-bottom: 10px;
+    }
+
+    .note-card h3 {
+      font-size: 13px;
+      line-height: 1.65;
+      margin-bottom: 9px;
+      letter-spacing: -.4px;
+    }
+
+    .card-text {
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .card-checklist {
+      font-size: 12px;
+    }
+
+    .card-checklist label {
+      gap: 7px;
+    }
+
+    .card-checklist input {
+      width: 15px;
+      height: 15px;
+    }
+
+    .card-actions {
+      opacity: 1;
+    }
+
+    .card-actions :global(.icon-button) {
+      width: 26px;
+      height: 30px;
+    }
+
+    .card-actions :global(.icon-button) :global(svg) {
+      width: 15px;
+    }
+
+    .pin-action {
+      opacity: 1;
+      top: 5px;
+      right: 2px;
+    }
+
+    .pin-action:not(.pinned) {
+      opacity: .3;
+    }
+
+    .pin-action :global(.icon-button) {
+      width: 27px;
+      height: 27px;
+    }
+
+    .pin-action :global(svg) {
+      width: 15px;
+    }
+
+    .visibility {
+      font-size: 8px;
+      gap: 3px;
+    }
+
+    .card-bottom {
+      margin-top: 9px;
+      gap: 2px;
+    }
+  }
+
+  @media (hover: none) {
+    .card-actions {
+      opacity: 1;
+    }
+
+    .pin-action {
+      opacity: .5;
+    }
+
+    .pin-action.pinned {
+      opacity: 1;
+    }
+  }
+</style>
