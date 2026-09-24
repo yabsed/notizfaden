@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-newstyle/
+.data/
+.env
+*.log
+client/android/.gradle/
+client/android/local.properties
+client/android/**/build/
+client/android/app/src/main/assets/public/
+playwright-report/
+test-results/
+
+*.tsbuildinfo
+dist-android/
+.env.*
+!.env.example

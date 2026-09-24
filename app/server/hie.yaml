@@ -1,0 +1,3 @@
+cradle:
+  cabal:
+    component: "keep-sns:exe:keep-sns-server"
