@@ -4,13 +4,13 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 export default defineConfig({
   plugins: [react(), {
-    name: 'teum-offline-shell',
+    name: 'notizfaden-offline-shell',
     apply: 'build',
     generateBundle(_, bundle) {
       const assets = Object.keys(bundle).map(name => `/${name}`);
       const files = ['/', '/icon.svg', '/fonts/Roboto-Regular.woff', '/fonts/Roboto-Medium.woff', '/fonts/Metropolis-Medium.woff', ...assets];
       const version = createHash('sha256').update(assets.join()).digest('hex').slice(0, 12);
-      const source = readFileSync(new URL('./service-worker.js', import.meta.url), 'utf8').replace('__CACHE_NAME__', `teum-shell-${version}`).replace('__PRECACHE__', JSON.stringify(files));
+      const source = readFileSync(new URL('./service-worker.js', import.meta.url), 'utf8').replace('__CACHE_NAME__', `notizfaden-shell-${version}`).replace('__PRECACHE__', JSON.stringify(files));
       this.emitFile({ type: 'asset', fileName: 'sw.js', source });
     }
   }],

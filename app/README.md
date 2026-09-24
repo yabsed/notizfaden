@@ -1,6 +1,8 @@
-# 틈 · teum
+# Notizfaden
 
-나를 위해 적고, 가끔은 함께. Google Keep의 카드와 빠른 입력을 기반으로 만든 개인 메모 + 선택적 공유 앱입니다.
+나를 위해 적고, 가끔은 함께. 빠른 입력과 카드형 메모를 기반으로 만든 개인 메모 + 선택적 공유 앱입니다.
+
+기존 설치본의 메모와 로그인을 유지하기 위해 Android 패키지 ID(`io.teum.notes`), 브라우저 저장소 키, 기본 개발 DB 이름은 이전 값을 사용합니다. 앱에 표시되는 이름은 Notizfaden입니다.
 
 ## 실행
 
@@ -29,7 +31,7 @@ npm run dev
 외부 PostgreSQL 사용:
 
 ```sh
-DATABASE_URL='host=127.0.0.1 port=5432 dbname=teum user=teum password=...' npm start
+DATABASE_URL='host=127.0.0.1 port=5432 dbname=notizfaden user=notizfaden password=...' npm start
 ```
 
 새 Fedora 환경의 시스템 개발 패키지:
@@ -71,12 +73,12 @@ API의 `ALLOWED_ORIGINS` 기본값에 Capacitor origin인 `https://localhost`가
 
 ```sh
 VITE_API_URL=http://YOUR_PC_IP:5173 VITE_PUBLIC_URL=http://YOUR_PC_IP:5173 npm run build
-TEUM_ANDROID_DEV=1 npx cap sync android
+NOTIZFADEN_ANDROID_DEV=1 npx cap sync android
 cd android
 ./gradlew assembleDebug
 ```
 
-PC에서 `npm start`를 실행하고 휴대폰을 같은 네트워크에 연결하세요. `TEUM_ANDROID_DEV` 없이 다시 동기화하면 기본 HTTPS 설정으로 돌아갑니다. 현재 환경에서 빌드용 JDK 21은 `.data/jdk21`에 준비했습니다.
+PC에서 `npm start`를 실행하고 휴대폰을 같은 네트워크에 연결하세요. `NOTIZFADEN_ANDROID_DEV` 없이 다시 동기화하면 기본 HTTPS 설정으로 돌아갑니다. 현재 환경에서 빌드용 JDK 21은 `.data/jdk21`에 준비했습니다.
 
 ## 검사
 
@@ -90,7 +92,7 @@ npm test
 python3 server/test/api.py
 ```
 
-브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API 검사는 임의의 테스트 계정을 만들고 공개 상태를 마지막에 해제/휴지통 처리합니다. 서버 검사 주소는 `TEUM_TEST_API`로 바꿀 수 있습니다.
+브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API 검사는 임의의 테스트 계정을 만들고 공개 상태를 마지막에 해제/휴지통 처리합니다. 서버 검사 주소는 `NOTIZFADEN_TEST_API`로 바꿀 수 있습니다.
 
 ## 구조와 참고 코드
 

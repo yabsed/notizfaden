@@ -10,11 +10,17 @@ export const db = new Notebook();
 // An open editor retains its base revision until the user has finished.
 export const activeEditors = new Set<string>();
 export const editorKey = (scope: string, id: string) => `${scope}:${id}`;
+const welcomeContent = '완성된 글이 아니어도 괜찮아요.\n떠오른 생각을 여기 남겨두세요.\n\n모든 메모는 나만 보는 것으로 시작해요. 함께 나누고 싶은 날, 공개 범위만 바꾸면 돼요.';
 export async function seed() {
   await db.transaction('rw', db.notes, db.settings, async () => {
+    if (!await db.settings.get('brand-notizfaden')) {
+      const legacyWelcome = await db.notes.filter(note => note.body.title === '작은 생각을 위한 작은 틈' && note.body.content === welcomeContent).toArray();
+      await db.notes.bulkPut(legacyWelcome.map(note => ({ ...note, body: { ...note.body, title: 'Notizfaden에 오신 걸 환영해요' }, updatedAt: new Date().toISOString(), dirty: true, mutationId: uid() })));
+      await db.settings.put({ key: 'brand-notizfaden', value: '1' });
+    }
     if (await db.settings.get('welcome')) return;
     const samples: Partial<NoteBody>[] = [
-      { title: '작은 생각을 위한 작은 틈', content: '완성된 글이 아니어도 괜찮아요.\n떠오른 생각을 여기 남겨두세요.\n\n모든 메모는 나만 보는 것으로 시작해요. 함께 나누고 싶은 날, 공개 범위만 바꾸면 돼요.', color: 'yellow', pinned: true, labels: ['시작하기'] },
+      { title: 'Notizfaden에 오신 걸 환영해요', content: welcomeContent, color: 'yellow', pinned: true, labels: ['시작하기'] },
       { title: '오늘의 작은 할 일', kind: 'checklist', items: ['물 한 잔 마시기', '읽던 책 10쪽', '생각 하나 적어두기', '저녁에 동네 한 바퀴'].map((text, i) => ({ id: uid(), text, done: i === 0 })), pinned: true, labels: ['일상'] },
       { title: '아직 답을 모르는 질문', content: '우리는 왜 이미 알고 있는 것을\n굳이 글로 적는 걸까?\n\n적는 동안 조금 다른 생각이\n되기 때문일지도.', color: 'lightblue', labels: ['생각'] },
       { title: '읽다가 멈춘 문장', content: '천천히 생각해도 괜찮다.\n적어둔 문장은 나를 기다려주니까.\n\n오늘의 나에게 남기는 말.', color: 'default', labels: ['문장'] },

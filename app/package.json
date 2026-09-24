@@ -1,5 +1,5 @@
 {
-  "name": "teum",
+  "name": "notizfaden",
   "private": true,
   "workspaces": [
     "client"

@@ -263,5 +263,5 @@ main = do
   let policy = simpleCorsResourcePolicy { corsOrigins=Just (origins,False), corsRequestHeaders=["Content-Type","Authorization"], corsMethods=["GET","POST","PUT","PATCH","OPTIONS"] }
       app :: Application
       app = cors (const $ Just policy) $ \req send -> serve (Proxy :: Proxy API) (server env) req (send . mapResponseHeaders (("Cache-Control","no-store"):))
-  putStrLn $ "Teum Haskell API listening on " ++ host ++ ":" ++ show port
+  putStrLn $ "Notizfaden Haskell API listening on " ++ host ++ ":" ++ show port
   runSettings (setHost (fromString host) $ setPort port defaultSettings) app

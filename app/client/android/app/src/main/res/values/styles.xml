@@ -18,7 +18,7 @@
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#FFFFFF</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/teum_icon</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/notizfaden_icon</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

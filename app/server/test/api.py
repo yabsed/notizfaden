@@ -2,7 +2,7 @@
 import json, os, uuid, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
-BASE = os.getenv('TEUM_TEST_API', 'http://127.0.0.1:8081/api')
+BASE = os.getenv('NOTIZFADEN_TEST_API', os.getenv('TEUM_TEST_API', 'http://127.0.0.1:8081/api'))
 def call(path, method='GET', data=None, token=None, expected=200):
     headers = {'Content-Type': 'application/json'}
     if token: headers['Authorization'] = 'Bearer ' + token
