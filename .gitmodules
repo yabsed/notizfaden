@@ -1,0 +1,6 @@
+[submodule "submodules/memos"]
+	path = submodules/memos
+	url = https://github.com/usememos/memos.git
+[submodule "submodules/googlekeepclone"]
+	path = submodules/googlekeepclone
+	url = https://github.com/anselm94/googlekeepclone.git
