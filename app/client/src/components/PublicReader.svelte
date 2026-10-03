@@ -76,7 +76,7 @@
       min-height: 100%;
       display: flex;
       flex-direction: column;
-      padding-top: 20px;
+      padding: calc(20px + var(--app-safe-top)) calc(24px + var(--app-safe-right)) calc(12px + var(--app-safe-bottom)) calc(24px + var(--app-safe-left));
     }
 
     .reader-footer {

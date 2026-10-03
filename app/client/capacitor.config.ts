@@ -3,6 +3,7 @@ const localAndroid = (process.env.NOTIZFADEN_ANDROID_DEV ?? process.env.TEUM_AND
 const config: CapacitorConfig = {
   appId: 'io.teum.notes', appName: 'Notizfaden', webDir: process.env.NOTIZFADEN_ANDROID_ASSETS || process.env.TEUM_ANDROID_ASSETS || 'dist',
   server: { cleartext: localAndroid },
-  android: { allowMixedContent: localAndroid }
+  android: { allowMixedContent: localAndroid },
+  plugins: { SystemBars: { insetsHandling: 'css', initialViewportFitValueHint: 'cover', style: 'LIGHT' } }
 };
 export default config;

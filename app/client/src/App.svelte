@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { Menu, Search, Lightbulb, Compass, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle } from '@lucide/svelte';
-  import { Capacitor } from '@capacitor/core';
+  import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
   import { App as NativeApp } from '@capacitor/app';
   import { db, persist, seed, notesFor } from './db';
   import { errorMessage, request } from './api';
@@ -44,7 +44,11 @@
   const notify = (text: string) => toast = text;
   const synchronizer = createSync({ session: () => session, notes: () => notes, editor: () => editor, notify });
 
-  $effect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('teum-dark', JSON.stringify(dark)); });
+  $effect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    localStorage.setItem('teum-dark', JSON.stringify(dark));
+    if (Capacitor.isNativePlatform()) void SystemBars.setStyle({ style: dark ? SystemBarsStyle.Dark : SystemBarsStyle.Light }).catch(() => {});
+  });
   $effect(() => { localStorage.setItem('teum-list', JSON.stringify(list)); });
   $effect(() => { if (!toast) return; const t = setTimeout(() => toast = '', 4500); return () => clearTimeout(t); });
   $effect(() => {
@@ -189,10 +193,10 @@
 
 <style>
   .topbar {
-    height: 72px;
+    height: calc(var(--app-header-height) + var(--app-safe-top));
     display: flex;
     align-items: center;
-    padding: 0 24px 0 12px;
+    padding: var(--app-safe-top) calc(24px + var(--app-safe-right)) 0 calc(12px + var(--app-safe-left));
     border-bottom: 1px solid var(--line);
     background: var(--bg);
     position: fixed;
@@ -285,12 +289,12 @@
   .sidebar {
     width: 264px;
     position: fixed;
-    left: 0;
-    top: 72px;
+    left: var(--app-safe-left);
+    top: calc(var(--app-header-height) + var(--app-safe-top));
     bottom: 0;
     background: var(--bg);
     z-index: 15;
-    padding: 20px 0 20px;
+    padding: 20px 0 calc(20px + var(--app-safe-bottom));
     display: flex;
     flex-direction: column;
     transition: width .18s;
@@ -402,7 +406,7 @@
 
   main {
     margin-left: 280px;
-    padding: 104px 36px 40px;
+    padding: calc(104px + var(--app-safe-top)) calc(36px + var(--app-safe-right)) calc(40px + var(--app-safe-bottom)) calc(36px + var(--app-safe-left));
     max-width: 1860px;
     transition: margin-left .18s;
     min-height: 100vh;
@@ -572,7 +576,7 @@
 
   .toast {
     position: fixed;
-    bottom: 28px;
+    bottom: calc(28px + var(--app-safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     z-index: 100;
@@ -598,8 +602,8 @@
 
   @media (min-width: 1600px) {
     main {
-      padding-left: 54px;
-      padding-right: 54px;
+      padding-left: calc(54px + var(--app-safe-left));
+      padding-right: calc(54px + var(--app-safe-right));
     }
 
     .notes-grid {
@@ -617,7 +621,7 @@
     }
 
     .topbar {
-      padding-right: 16px;
+      padding-right: calc(16px + var(--app-safe-right));
     }
 
     .brand-area {
@@ -629,8 +633,8 @@
     }
 
     main {
-      padding-left: 24px;
-      padding-right: 24px;
+      padding-left: calc(24px + var(--app-safe-left));
+      padding-right: calc(24px + var(--app-safe-right));
     }
 
     .notes-grid {
@@ -663,7 +667,7 @@
     .drawer-shade {
       display: block;
       position: fixed;
-      inset: 72px 0 0;
+      inset: calc(var(--app-header-height) + var(--app-safe-top)) 0 0;
       background: #0003;
       z-index: 14;
     }
@@ -687,7 +691,7 @@
     main,
     .sidebar-closed main {
       margin-left: 0;
-      padding: 100px 26px 40px;
+      padding: calc(100px + var(--app-safe-top)) calc(26px + var(--app-safe-right)) calc(40px + var(--app-safe-bottom)) calc(26px + var(--app-safe-left));
     }
 
     .topbar {
@@ -713,8 +717,7 @@
 
   @media (max-width: 600px) {
     .topbar {
-      height: 64px;
-      padding: 0 10px;
+      padding: var(--app-safe-top) calc(10px + var(--app-safe-right)) 0 calc(10px + var(--app-safe-left));
       gap: 7px;
     }
 
@@ -768,17 +771,9 @@
       margin-left: 5px;
     }
 
-    .sidebar {
-      top: 64px;
-    }
-
-    .drawer-shade {
-      inset: 64px 0 0;
-    }
-
     main,
     .sidebar-closed main {
-      padding: 89px 14px 100px;
+      padding: calc(89px + var(--app-safe-top)) calc(14px + var(--app-safe-right)) calc(100px + var(--app-safe-bottom)) calc(14px + var(--app-safe-left));
     }
 
     .workspace-head {
@@ -823,8 +818,8 @@
       align-items: center;
       justify-content: center;
       position: fixed;
-      right: 24px;
-      bottom: 24px;
+      right: calc(24px + var(--app-safe-right));
+      bottom: calc(24px + var(--app-safe-bottom));
       width: 56px;
       height: 56px;
       border-radius: 17px;
@@ -840,7 +835,7 @@
     }
 
     .toast {
-      bottom: 90px;
+      bottom: calc(90px + var(--app-safe-bottom));
       font-size: 12px;
     }
 

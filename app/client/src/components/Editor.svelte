@@ -60,39 +60,41 @@
 <Modal label="메모 편집" onClose={close} class="editor-dialog">
   <div class="editor" style={noteStyle(body.color)}>
     <div class="editor-mobile-head"><IconButton label="메모 닫기" icon={ArrowLeft} onclick={close}/><span>{saving ? '저장 중…' : '기기에 저장됨'}</span></div>
-    <div class="editor-title">
-      <input aria-label="메모 제목" placeholder="제목" maxlength={300} bind:value={body.title}/>
-      <IconButton label={body.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={21} active={body.pinned} fill={body.pinned ? 'currentColor' : 'none'} onclick={() => body.pinned = !body.pinned}/>
-    </div>
-    {#if body.kind === 'text'}
-      <!-- svelte-ignore a11y_autofocus (Focus the editor after the user opens its modal.) -->
-      <textarea autofocus bind:this={textarea} aria-label="메모 내용" placeholder="메모 작성…" maxlength={100000} bind:value={body.content}></textarea>
-    {:else}
-      <div class="editor-checklist">
-        {#each body.items as item, index (item.id)}
-          <div class="editor-item" class:completed={item.done}>
-            <input type="checkbox" aria-label={`${item.text} 완료`} bind:checked={item.done}/>
-            <input aria-label={`항목 ${index + 1}`} placeholder="목록 항목" maxlength={3000} bind:value={item.text} onkeydown={e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void insert(index + 1); } }}/>
-            <IconButton label="항목 삭제" icon={X} size={16} onclick={() => body.items.splice(index, 1)}/>
-          </div>
-        {/each}
-        <button class="add-item" onclick={() => insert()}><Plus size={18}/> 목록 항목</button>
+    <div class="editor-content">
+      <div class="editor-title">
+        <input aria-label="메모 제목" placeholder="제목" maxlength={300} bind:value={body.title}/>
+        <IconButton label={body.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={21} active={body.pinned} fill={body.pinned ? 'currentColor' : 'none'} onclick={() => body.pinned = !body.pinned}/>
       </div>
-    {/if}
-    {#if body.labels.length}<div class="labels editor-labels">{#each body.labels as label, index}<button title={`${label} 라벨 삭제`} onclick={() => body.labels.splice(index, 1)}>{label}<X size={11}/></button>{/each}</div>{/if}
-    {#if body.sourceId}<button class="source-link" onclick={() => onSource(body.sourceId!)}><ExternalLink size={13}/> 원본 메모에서 이어 쓴 생각</button>{/if}
-    {#if palette}<PalettePicker selected={body.color} onChange={color => body.color = color}/>{/if}
-    {#if tagOpen}<form class="tag-form" onsubmit={e => { e.preventDefault(); addTag(); }}><Tag size={16}/><input aria-label="새 라벨" placeholder="라벨 이름" maxlength={32} bind:value={tag}/><button type="submit">추가</button></form>{/if}
-    <div class="sharing-row">
-      <label><span>{#if note.visibility === 'public'}<Globe2 size={15}/>{:else}<LockKeyhole size={15}/>{/if}</span>
-        <select aria-label="공개 범위" value={note.visibility} disabled={sharing || !session || !!note.conflict} onchange={e => { const next = e.currentTarget.value as Visibility; e.currentTarget.value = note.visibility; void share(next); }}>
-          <option value="private">나만 보기</option><option value="public">전체 공개</option>
-        </select>
-      </label>
-      <span>{sharing ? '변경 중…' : !session ? '로그인하면 메모를 공유할 수 있어요' : note.visibility === 'public' ? '이후 수정한 내용도 함께 공개돼요' : '나를 위한 메모예요'}</span>
+      {#if body.kind === 'text'}
+        <!-- svelte-ignore a11y_autofocus (Focus the editor after the user opens its modal.) -->
+        <textarea autofocus bind:this={textarea} aria-label="메모 내용" placeholder="메모 작성…" maxlength={100000} bind:value={body.content}></textarea>
+      {:else}
+        <div class="editor-checklist">
+          {#each body.items as item, index (item.id)}
+            <div class="editor-item" class:completed={item.done}>
+              <input type="checkbox" aria-label={`${item.text} 완료`} bind:checked={item.done}/>
+              <input aria-label={`항목 ${index + 1}`} placeholder="목록 항목" maxlength={3000} bind:value={item.text} onkeydown={e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void insert(index + 1); } }}/>
+              <IconButton label="항목 삭제" icon={X} size={16} onclick={() => body.items.splice(index, 1)}/>
+            </div>
+          {/each}
+          <button class="add-item" onclick={() => insert()}><Plus size={18}/> 목록 항목</button>
+        </div>
+      {/if}
+      {#if body.labels.length}<div class="labels editor-labels">{#each body.labels as label, index}<button title={`${label} 라벨 삭제`} onclick={() => body.labels.splice(index, 1)}>{label}<X size={11}/></button>{/each}</div>{/if}
+      {#if body.sourceId}<button class="source-link" onclick={() => onSource(body.sourceId!)}><ExternalLink size={13}/> 원본 메모에서 이어 쓴 생각</button>{/if}
+      {#if palette}<PalettePicker selected={body.color} onChange={color => body.color = color}/>{/if}
+      {#if tagOpen}<form class="tag-form" onsubmit={e => { e.preventDefault(); addTag(); }}><Tag size={16}/><input aria-label="새 라벨" placeholder="라벨 이름" maxlength={32} bind:value={tag}/><button type="submit">추가</button></form>{/if}
+      <div class="sharing-row">
+        <label><span>{#if note.visibility === 'public'}<Globe2 size={15}/>{:else}<LockKeyhole size={15}/>{/if}</span>
+          <select aria-label="공개 범위" value={note.visibility} disabled={sharing || !session || !!note.conflict} onchange={e => { const next = e.currentTarget.value as Visibility; e.currentTarget.value = note.visibility; void share(next); }}>
+            <option value="private">나만 보기</option><option value="public">전체 공개</option>
+          </select>
+        </label>
+        <span>{sharing ? '변경 중…' : !session ? '로그인하면 메모를 공유할 수 있어요' : note.visibility === 'public' ? '이후 수정한 내용도 함께 공개돼요' : '나를 위한 메모예요'}</span>
+      </div>
+      {#if note.visibility === 'public' && (!Capacitor.isNativePlatform() || import.meta.env.VITE_PUBLIC_URL)}<button class="source-link" onclick={copyLink}><Copy size={13}/>{linkCopied ? '링크를 복사했어요' : '공개 링크 복사'}</button>{/if}
+      {#if error}<div role="alert" class="error">{error}<button onclick={() => save()}>다시 저장</button></div>{/if}
     </div>
-    {#if note.visibility === 'public' && (!Capacitor.isNativePlatform() || import.meta.env.VITE_PUBLIC_URL)}<button class="source-link" onclick={copyLink}><Copy size={13}/>{linkCopied ? '링크를 복사했어요' : '공개 링크 복사'}</button>{/if}
-    {#if error}<div role="alert" class="error">{error}<button onclick={() => save()}>다시 저장</button></div>{/if}
     <div class="editor-toolbar"><div>
       <IconButton label="색상 바꾸기" icon={Palette} size={19} active={palette} onclick={() => palette = !palette}/>
       <IconButton label="라벨 추가" icon={Tag} size={19} active={tagOpen} onclick={() => tagOpen = !tagOpen}/>
@@ -111,6 +113,10 @@
   .editor {
     padding: 14px 0 0;
     background: var(--card-light);
+  }
+
+  .editor-content {
+    display: contents;
   }
 
   .editor-title {
@@ -146,7 +152,7 @@
     outline: 0;
   }
 
-  .editor > :global(.palette) {
+  .editor-content > :global(.palette) {
     padding: 12px 24px;
   }
 
@@ -287,7 +293,7 @@
     color: var(--icon);
   }
 
-  .editor > .error {
+  .editor-content > .error {
     margin: 0 20px 12px;
   }
 
@@ -297,10 +303,22 @@
     }
 
     .editor {
-      min-height: 100%;
-      padding-top: env(safe-area-inset-top);
+      height: 100%;
+      padding: var(--app-safe-top) var(--app-safe-right) 0 var(--app-safe-left);
       display: flex;
       flex-direction: column;
+    }
+
+    .editor-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .editor-content > * {
+      flex-shrink: 0;
     }
 
     .editor-mobile-head {
@@ -310,6 +328,7 @@
       padding: 7px 12px;
       font-size: 10px;
       color: var(--muted);
+      flex-shrink: 0;
     }
 
     .editor-title {
@@ -329,8 +348,8 @@
     }
 
     .editor-toolbar {
-      padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-      margin-top: auto;
+      padding: 8px 10px calc(8px + var(--app-safe-bottom));
+      flex-shrink: 0;
     }
 
     .editor-toolbar .save-caption {

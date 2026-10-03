@@ -19,8 +19,8 @@
     color: var(--fg);
     border-radius: 12px;
     box-shadow: 0 10px 50px #0003;
-    max-width: calc(100vw - 32px);
-    max-height: 90dvh;
+    max-width: calc(100vw - 32px - var(--app-safe-left) - var(--app-safe-right));
+    max-height: min(90dvh, calc(100dvh - 32px - var(--app-safe-top) - var(--app-safe-bottom)));
     overflow: auto;
   }
 
@@ -51,7 +51,7 @@
 
     .account-dialog {
       padding: 23px;
-      max-width: calc(100vw - 24px);
+      max-width: calc(100vw - 24px - var(--app-safe-left) - var(--app-safe-right));
     }
   }
 </style>
