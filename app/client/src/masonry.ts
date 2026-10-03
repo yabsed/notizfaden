@@ -4,8 +4,17 @@ export function layoutCards(node: HTMLElement, order?: readonly string[]) {
   const cards = [...node.children].filter((el): el is HTMLElement => el instanceof HTMLElement);
   const ranks = order && new Map(order.map((id, index) => [id, index]));
   if (ranks) cards.sort((a, b) => (ranks.get(a.dataset.noteId!) ?? Infinity) - (ranks.get(b.dataset.noteId!) ?? Infinity));
+  // Old explicit positions create implicit columns when switching to a narrower
+  // grid. Clear both axes before reading the new template, otherwise those
+  // leftover columns are mistaken for the requested column count forever.
+  for (const card of cards) {
+    card.style.removeProperty('grid-column-start');
+    card.style.removeProperty('grid-row-start');
+  }
   const columns = Math.max(1, getComputedStyle(node).gridTemplateColumns.split(' ').length);
   const bottoms = Array<number>(columns).fill(1);
+  // Measure at the destination column width, particularly after list toggles.
+  cards.forEach((card, index) => { card.style.gridColumnStart = String(index % columns + 1); });
   const spans = cards.map(card => Math.ceil(card.getBoundingClientRect().height + (parseFloat(getComputedStyle(card).marginBottom) || 0)));
   cards.forEach((card, index) => {
     const column = index % columns, span = Math.max(1, spans[index]);
@@ -33,7 +42,7 @@ export function masonry(node: HTMLElement) {
     schedule();
   }
   const mutations = new MutationObserver(observeCards);
-  mutations.observe(node, { childList: true });
+  mutations.observe(node, { childList: true, attributes: true, attributeFilter: ['class'] });
   observeCards();
   return { destroy() { cancelAnimationFrame(frame); mutations.disconnect(); resize.disconnect(); } };
 }
