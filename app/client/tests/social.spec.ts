@@ -46,7 +46,7 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     await expect(visitor.getByRole('dialog', { name: '팔로워' })).toContainText(reader.user.name);
     await visitor.getByRole('button', { name: '닫기', exact: true }).click();
     await visitor.locator('.bottom-nav').getByRole('button', { name: '피드', exact: true }).click();
-    await visitor.locator('.social-tabs').getByRole('button', { name: '팔로잉', exact: true }).click();
+    await visitor.getByRole('switch', { name: '팔로잉만', exact: true }).click();
     await expect(visitor.getByTestId('social-card')).toHaveCount(8);
     await expect(visitor.getByText('아직 나만 보는 생각')).toHaveCount(0);
     await expect(visitor.getByText('개인라벨')).toHaveCount(0);
@@ -97,12 +97,12 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     await visitor.getByRole('button', { name: '목록 보기', exact: true }).click();
     expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('1');
     await visitor.getByRole('button', { name: '카드 보기', exact: true }).click();
-    await visitor.locator('.bottom-nav').getByRole('button', { name: '탐색', exact: true }).click();
-    await expect(visitor.getByRole('heading', { name: '최근 공개 메모를 쓴 사람들', exact: true })).toBeVisible();
+    await visitor.locator('.social-tabs').getByRole('button', { name: '사람들', exact: true }).click();
+    await expect(visitor.getByRole('heading', { name: '내가 팔로우하는 사람들', exact: true })).toBeVisible();
     await expect(visitor.locator('.people-grid')).toContainText('산책하는 기록가');
     await visitor.getByRole('searchbox').fill('산책하는 기록가');
     await expect(visitor.getByRole('heading', { name: '사람 검색 결과', exact: true })).toBeVisible();
-    await expect(visitor.getByRole('heading', { name: '메모 검색 결과', exact: true })).toBeVisible();
+    await expect(visitor.getByRole('combobox', { name: '게시물 정렬' })).toHaveCount(0);
     await expect(visitor.locator('.people-grid')).toContainText('산책하는 기록가');
     await visitor.locator('.people-grid').getByRole('button').filter({ hasText: writer.user.name }).click();
     await visitor.getByLabel('사용자 메뉴', { exact: true }).click();
@@ -144,7 +144,7 @@ test('public tab contains profile; shared detail has top tools and privacy remov
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?view=notes');
   await expect(page.locator('.note-filters button')).toHaveText(['전체', '공개', '비공개']);
-  await expect(page.locator('.bottom-nav button')).toHaveText(['피드', '탐색', '메모', '알림']);
+  await expect(page.locator('.bottom-nav button')).toHaveText(['피드', '메모', '알림']);
   const card = page.getByTestId('note-card').filter({ hasText: body.title });
   await expect(card.locator('.note-reactions')).toHaveCount(0);
   await card.getByRole('button', { name: '통합 메모 열기' }).click();

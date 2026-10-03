@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Menu, Search, Lightbulb, Compass, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle, House, Bell } from '@lucide/svelte';
+  import { Menu, Search, Lightbulb, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle, House, Bell } from '@lucide/svelte';
   import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
   import { App as NativeApp } from '@capacitor/app';
   import { db, persist, seed, notesFor } from './db';
@@ -18,9 +18,9 @@
   import { type Post, type NotificationPage } from './social';
   import { createNotebookSocial } from './notebookSocial.svelte';
 
-  type View = 'feed' | 'profile' | 'notifications' | 'notes' | 'explore' | 'archive' | 'trash' | `label:${string}`;
+  type View = 'feed' | 'profile' | 'notifications' | 'notes' | 'archive' | 'trash' | `label:${string}`;
   const sections: { view: View; label: string; icon: typeof Menu }[] = [
-    { view: 'feed', label: '피드', icon: House }, { view: 'explore', label: '탐색', icon: Compass },
+    { view: 'feed', label: '피드', icon: House },
     { view: 'notes', label: '메모', icon: Lightbulb }, { view: 'notifications', label: '알림', icon: Bell },
     { view: 'archive', label: '보관함', icon: Archive }, { view: 'trash', label: '휴지통', icon: Trash2 }
   ];
@@ -35,8 +35,9 @@
   let editor = $state.raw<LocalNote | null>(null), reader = $state.raw<Note | null>(null);
   let authOpen = $state(false), accountOpen = $state(false);
   let targetProfile = $state(''), unread = $state(0), socialRevision = $state(0);
+  let feedTab = $state<'posts' | 'people'>('posts');
   let visibilityFilter = $state<'all' | Visibility>('all');
-  let isSocial = $derived(['feed', 'explore', 'profile', 'notifications'].includes(view));
+  let isSocial = $derived(['feed', 'profile', 'notifications'].includes(view));
   const scrollPositions = new Map<string, number>();
   let restoreScroll: number | null = null, readSequence = 0;
   let toast = $state(''), initError = $state('');
@@ -46,7 +47,7 @@
   let ownProfile = $derived(view === 'profile' && (!targetProfile || targetProfile === session?.user.id));
   let title = $derived(ownProfile ? '메모' : view === 'profile' ? '프로필' : sections.find(s => s.view === view)?.label || view.slice(6));
   let q = $derived(query.trim().toLowerCase());
-  const matches = (n: Note) => [n.body.title, n.body.content, ...n.body.items.map(i => i.text), ...n.body.labels, ...(view === 'explore' ? [n.author.name] : [])].join(' ').toLowerCase().includes(q);
+  const matches = (n: Note) => [n.body.title, n.body.content, ...n.body.items.map(i => i.text), ...n.body.labels].join(' ').toLowerCase().includes(q);
   let visible = $derived(notes.filter(n => view === 'trash' ? n.body.trashed : !n.body.trashed && (view === 'archive' ? n.body.archived : view.startsWith('label:') ? n.body.labels.includes(view.slice(6)) : !n.body.archived)).filter(n => view !== 'notes' || visibilityFilter === 'all' || n.visibility === visibilityFilter).filter(matches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   let pinned = $derived(visible.filter(n => n.body.pinned)), others = $derived(visible.filter(n => !n.body.pinned));
   const notify = (text: string) => toast = text;
@@ -88,7 +89,11 @@
   });
   function shortcut(e: KeyboardEvent) { if (e.key === '/' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement) && !document.querySelector('dialog[open]')) { e.preventDefault(); search?.focus(); } }
   function fromLink() {
-    const params = new URLSearchParams(location.search), next = params.get('view') as View;
+    const params = new URLSearchParams(location.search);
+    const legacyExplore = params.get('view') === 'explore';
+    const next = (legacyExplore ? 'feed' : params.get('view')) as View;
+    feedTab = legacyExplore || params.get('tab') === 'people' ? 'people' : 'posts';
+    if (legacyExplore) { const url = new URL(location.href); url.searchParams.set('view', 'feed'); url.searchParams.set('tab', 'people'); history.replaceState(null, '', url); }
     readSequence++;
     view = next && (next === 'profile' || sections.some(s => s.view === next) || next.startsWith('label:')) ? next : session ? 'feed' : 'notes';
     targetProfile = params.get('profile') || '';
@@ -107,9 +112,16 @@
     if (window.innerWidth <= 900) sidebar = false;
     const url = new URL(location.href); url.search = ''; url.searchParams.set('view', next);
     if (profile) url.searchParams.set('profile', profile);
+    if (next === 'feed' && feedTab === 'people') url.searchParams.set('tab', 'people');
     history.pushState(null, '', url);
     restoreScroll = scrollPositions.get(`${next}:${profile}`) || 0;
     await tick(); window.scrollTo(0, restoreScroll);
+  }
+  function changeFeedTab(tab: 'posts' | 'people') {
+    feedTab = tab;
+    const url = new URL(location.href); url.searchParams.set('view', 'feed');
+    if (tab === 'people') url.searchParams.set('tab', tab); else url.searchParams.delete('tab');
+    history.replaceState(null, '', url);
   }
   function openProfile(id: string) { if (id === session?.user.id) { visibilityFilter = 'public'; void navigate('notes'); } else void navigate('profile', id); }
   async function socialReady() { await tick(); if (restoreScroll !== null) { window.scrollTo(0, restoreScroll); restoreScroll = null; } }
@@ -198,7 +210,7 @@
 <div class="app" class:sidebar-open={sidebar} class:sidebar-closed={!sidebar}>
   <header class="topbar">
     <div class="brand-area"><IconButton label="메뉴" icon={Menu} size={23} onclick={() => sidebar = !sidebar}/><a href="/" class="brand" aria-label="Notizfaden" onclick={e => { e.preventDefault(); navigate(session ? 'feed' : 'notes'); }}><img class="brand-icon" src="/icon.svg" alt=""/><span class="brand-name">Notizfaden</span></a></div>
-    <div class="search"><Search size={21}/><input bind:this={search} type="search" aria-label="메모 검색" placeholder={isSocial ? '사람과 공개 메모 검색' : '메모 검색'} bind:value={query}/>{#if query}<IconButton label="검색 지우기" icon={X} size={18} onclick={() => query = ''}/>{:else}<kbd>/</kbd>{/if}</div>
+    <div class="search"><Search size={21}/><input bind:this={search} type="search" aria-label="메모 검색" placeholder={view === 'feed' ? feedTab === 'people' ? '사람 검색' : '공개 메모 검색' : isSocial ? '사람과 공개 메모 검색' : '메모 검색'} bind:value={query}/>{#if query}<IconButton label="검색 지우기" icon={X} size={18} onclick={() => query = ''}/>{:else}<kbd>/</kbd>{/if}</div>
     <div class="top-actions">
       <button class="sync-status" onclick={() => synchronizer.run()} title={synchronizer.error || synchronizer.status} disabled={synchronizer.syncing || !!editor}>{#if synchronizer.syncing}<RefreshCw size={17} class="spin"/>{:else if synchronizer.error}<CloudOff size={18}/>{:else}<Cloud size={18}/>{/if}<span>{synchronizer.status}</span></button>
       <IconButton label={list ? '카드 보기' : '목록 보기'} icon={list ? LayoutGrid : Rows3} size={22} onclick={() => list = !list}/>
@@ -208,15 +220,15 @@
   </header>
   {#if sidebar}<button class="drawer-shade" aria-label="메뉴 닫기" onclick={() => sidebar = false}></button>{/if}
   <aside class="sidebar"><nav aria-label="메모 탐색">
-    {@render nav(sections.slice(0, 4))}<div class="nav-divider"></div><div class="nav-caption">라벨</div>
+    {@render nav(sections.slice(0, 3))}<div class="nav-divider"></div><div class="nav-caption">라벨</div>
     {#each labels as label}<button class:selected={view === `label:${label}`} onclick={() => navigate(`label:${label}`)} title={label}><Tag size={20}/><span>{label}</span></button>{/each}
-    <div class="nav-divider"></div>{@render nav(sections.slice(4))}
+    <div class="nav-divider"></div>{@render nav(sections.slice(3))}
   </nav><div class="sidebar-footer"><span class="footer-mark">Notizfaden</span><p>나를 위해 적고,<br/>가끔은 함께.</p><button onclick={exportNotes}><Download size={14}/> 메모 내보내기</button></div></aside>
   <main>
     {#if $notebook.error || initError}<div class="banner error" role="alert">{$notebook.error || initError}</div>{/if}
     {#if synchronizer.error}<div class="banner" role="status"><CloudOff size={16}/>{synchronizer.error}<button onclick={() => synchronizer.run()}>다시 연결</button></div>{/if}
     <div class="workspace-head"><h1>{title}</h1><span>{isSocial ? '작은 메모에서 시작되는 우리 이야기.' : view === 'trash' ? '잠시 내려놓은 메모. 언제든 복원할 수 있어요.' : view === 'archive' ? '지금은 꺼내두지 않아도 되는 생각들.' : '떠오른 생각을 가볍게 남겨보세요.'}</span></div>
-    {#if (!isSocial || view === 'feed') && view !== 'trash' && view !== 'archive' && !query}<div class="composer"><button class="composer-input" onclick={() => create()}>메모 작성…</button><IconButton label="새 체크리스트" icon={CheckSquare} size={23} onclick={() => create('checklist')}/><IconButton label="새 메모" icon={Plus} size={24} onclick={() => create()}/></div>{/if}
+    {#if (!isSocial || (view === 'feed' && feedTab === 'posts')) && view !== 'trash' && view !== 'archive' && !query}<div class="composer"><button class="composer-input" onclick={() => create()}>메모 작성…</button><IconButton label="새 체크리스트" icon={CheckSquare} size={23} onclick={() => create('checklist')}/><IconButton label="새 메모" icon={Plus} size={24} onclick={() => create()}/></div>{/if}
     {#if view === 'notes' || ownProfile}<div class="note-filters" aria-label="메모 보기">
       {#each [{value: 'all', label: '전체'}, {value: 'public', label: '공개'}, {value: 'private', label: '비공개'}] as filter}
         <button class:selected={visibilityFilter === filter.value} aria-pressed={visibilityFilter === filter.value} onclick={() => visibilityFilter = filter.value as typeof visibilityFilter}>{filter.label}</button>
@@ -225,7 +237,7 @@
     {#if view === 'notes' && visibilityFilter === 'public'}<SocialView view="profile" profileOnly profileId={session?.user.id || ''} {session} query="" {list} revision={socialRevision} onRead={readPublic} onOpenNote={openFeedNote} onProfile={openProfile} onLogin={() => authOpen = true} onUnread={value => unread = value} onReady={() => void notebookSocial.refresh()}/>{/if}
     {#if query}<p class="results">“{query}” 검색 결과</p>{/if}
     {#if isSocial}
-      <SocialView view={view as 'feed' | 'explore' | 'profile' | 'notifications'} profileId={targetProfile || session?.user.id || ''} {session} {query} {list} revision={socialRevision} onRead={readPublic} onOpenNote={openFeedNote} onProfile={openProfile} onLogin={() => authOpen = true} onUnread={value => unread = value} onReady={socialReady}/>
+      <SocialView {feedTab} onFeedTab={changeFeedTab} view={view as 'feed' | 'profile' | 'notifications'} profileId={targetProfile || session?.user.id || ''} {session} {query} {list} revision={socialRevision} onRead={readPublic} onOpenNote={openFeedNote} onProfile={openProfile} onLogin={() => authOpen = true} onUnread={value => unread = value} onReady={socialReady}/>
     {:else}
       {#if notebookSocial.error && session}<div class="social-status" role="status">메모 반응을 갱신하지 못했어요.<button onclick={() => notebookSocial.refresh()}>다시 시도</button></div>{/if}
       {#each notes.filter(n => n.syncError) as note (note.id)}<div class="banner"><AlertCircle size={18}/><span>‘{note.body.title || '메모'}’ 동기화: {note.syncError}</span><button onclick={() => note.body.sourceId ? update(note, { sourceId: null }) : open(note)}>{note.body.sourceId ? '출처 없이 저장' : '메모 수정'}</button></div>{/each}
@@ -239,7 +251,7 @@
     {/if}
     {#if view === 'notes' && !query && visible.length}<div class="workspace-foot"><LockKeyhole size={12}/><span>메모는 기본적으로 나만 볼 수 있어요.</span></div>{/if}
   </main>
-  <nav class="bottom-nav" aria-label="주요 화면">{#each sections.slice(0, 4) as item}<button class:selected={view === item.view || (item.view === 'notes' && view === 'profile' && (!targetProfile || targetProfile === session?.user.id))} onclick={() => navigate(item.view)}><item.icon size={21}/><span>{item.label}</span>{#if item.view === 'notifications' && unread}<b>{unread > 99 ? '99+' : unread}</b>{/if}</button>{/each}</nav>
+  <nav class="bottom-nav" aria-label="주요 화면">{#each sections.slice(0, 3) as item}<button class:selected={view === item.view || (item.view === 'notes' && view === 'profile' && (!targetProfile || targetProfile === session?.user.id))} onclick={() => navigate(item.view)}><item.icon size={21}/><span>{item.label}</span>{#if item.view === 'notifications' && unread}<b>{unread > 99 ? '99+' : unread}</b>{/if}</button>{/each}</nav>
   <button class="mobile-create" aria-label="새 메모" onclick={() => create()}><Plus size={28}/></button>
   {#if editorCurrent}{#key editorCurrent.id}<Editor note={editorCurrent} onSync={syncDiscussion} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++} onClose={closeEditor} onSave={save} onVisibility={setVisibility} {session} onSource={readPublic}/>{/key}{/if}
   {#if reader}<PublicReader note={reader} {session} onClose={closeReader} onFork={() => reader && fork(reader)} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++}/>{/if}

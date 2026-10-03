@@ -98,7 +98,8 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   const visitorContext = await browser.newContext();
   const visitor = await visitorContext.newPage();
   await visitor.goto('/?view=notes');
-  await visitor.getByRole('button', { name: '탐색', exact: true }).click();
+  await visitor.getByRole('button', { name: '피드', exact: true }).click();
+  await visitor.getByRole('searchbox').fill(username);
   const shared = visitor.getByTestId('social-card').filter({ hasText: '두 기기에서 이어지는 생각' });
   await expect(shared).toBeVisible();
   await shared.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
@@ -110,7 +111,8 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await page.getByRole('combobox', { name: '공개 범위' }).selectOption('private');
   await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
-  await visitor.getByRole('button', { name: '탐색', exact: true }).click();
+  await visitor.getByRole('button', { name: '피드', exact: true }).click();
+  await visitor.getByRole('searchbox').fill(username);
   await expect(visitor.getByTestId('social-card').filter({ hasText: '두 기기에서 이어지는 생각' })).toHaveCount(0);
   // Changing the store's account scope must remove the previous account's notes.
   await page.getByRole('button', { name: '계정', exact: true }).click();

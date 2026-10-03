@@ -7,12 +7,14 @@
   import NoteCard from './NoteCard.svelte';
   import Person from './Person.svelte';
   import Modal from './Modal.svelte';
-  let { view, profileId = '', profileOnly = false, session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady, onOpenNote }: {
-    view: 'feed' | 'explore' | 'profile' | 'notifications'; profileId?: string; profileOnly?: boolean; session: Session | null; query: string; list: boolean; revision?: number;
+  let { view, feedTab = 'posts', onFeedTab = () => {}, profileId = '', profileOnly = false, session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady, onOpenNote }: {
+    view: 'feed' | 'profile' | 'notifications'; feedTab?: 'posts' | 'people'; onFeedTab?: (tab: 'posts' | 'people') => void; profileId?: string; profileOnly?: boolean; session: Session | null; query: string; list: boolean; revision?: number;
     onOpenNote: (id: string) => void;
     onRead: (id: string) => void; onProfile: (id: string) => void; onLogin: () => void; onUnread: (count: number) => void; onReady: () => void;
   } = $props();
-  let mode = $state<'all' | 'following'>('all');
+  let followingOnly = $state(false), sort = $state<'latest' | 'top'>('latest');
+  let following = $derived(!!session && followingOnly);
+  let peopleTitle = $derived(query.trim() ? '사람 검색 결과' : following ? '내가 팔로우하는 사람들' : '최근 공개 메모를 쓴 사람들');
   let posts = $state.raw<Post[]>([]), people = $state.raw<Profile[]>([]), notices = $state.raw<Notice[]>([]);
   let profile = $state.raw<Profile | null>(null), connections = $state.raw<Profile[] | null>(null), connectionTitle = $state('');
   let cursor = $state<string | null>(null), noticeCursor = $state<number | null>(null), loading = $state(false), error = $state('');
@@ -24,7 +26,7 @@
   let serial = 0, touchStart: number | null = null, pull = $state(0);
   const endpoint = (path: string, method = 'GET', body?: unknown) => request<any>(`/social${path}`, session, method, body);
   $effect(() => {
-    const key = `${identity()}:${query}:${mode}`; revision;
+    const key = `${identity()}:${query}:${feedTab}:${following}:${sort}`; revision;
     untrack(() => { if (contextKey === key) return; contextKey = key; posts = []; people = []; notices = []; profile = null; cursor = null; noticeCursor = null; error = ''; connections = null; editing = false; reporting = false; adminOpen = false; adminReports = null; message = ''; reason = ''; busy = false; loading = true; });
     const timer = setTimeout(() => void load(), 180);
     return () => { clearTimeout(timer); serial++; };
@@ -49,12 +51,16 @@
         }
       } else {
         const params = new URLSearchParams();
-        if (view === 'feed' && mode === 'following') params.set('following', 'true');
+        if (following) params.set('following', 'true');
         if (query.trim()) params.set('q', query.trim());
         if (more && cursor) params.set('cursor', cursor);
-        const [data, users]: [Page<Post>, Profile[]] = await Promise.all([
-          endpoint(`/feed?${params}`), view === 'explore' && !more ? endpoint(`/people?q=${encodeURIComponent(query.trim())}`) : Promise.resolve(people)
-        ]);
+        if (feedTab === 'people') {
+          const users: Profile[] = await endpoint(`/people?${params}`);
+          if (ticket === serial) { people = users; posts = []; cursor = null; }
+          return;
+        }
+        params.set('sort', sort);
+        const data: Page<Post> = await endpoint(`/feed?${params}`);
         while (!more && data.cursor && data.items.length < visibleCount) {
           params.set('cursor', data.cursor);
           const next: Page<Post> = await endpoint(`/feed?${params}`);
@@ -63,7 +69,7 @@
         }
         if (ticket !== serial) return;
         posts = more ? [...posts, ...data.items.filter(p => !posts.some(old => old.note.id === p.note.id))] : data.items;
-        cursor = data.cursor; people = users;
+        cursor = data.cursor;
       }
     } catch (e) { if (ticket === serial) error = errorMessage(e); }
     finally { if (ticket === serial) { loading = false; await tick(); onReady(); } }
@@ -118,11 +124,21 @@
 <section class="social-view" aria-label={view === 'notifications' ? '알림 목록' : '소셜 메모'}>
   {#if pull > 50}<p class="hint">{pull > 90 ? '놓으면 새로고침해요' : '조금 더 당겨주세요'}</p>{/if}
   {#if view === 'feed'}
-    <div class="social-tabs"><button class:selected={mode === 'all'} onclick={() => mode = 'all'}>전체</button><button class:selected={mode === 'following'} onclick={() => { if (!session) onLogin(); else mode = 'following'; }}>팔로잉</button><button class="refresh" aria-label="피드 새로고침" disabled={loading} onclick={() => load()}><RefreshCw size={17} class={loading ? 'spin' : ''}/></button></div>
-  {:else if view === 'explore'}
-    <div class="section-top"><h2>{query.trim() ? '사람 검색 결과' : '최근 공개 메모를 쓴 사람들'}</h2><button class="text-button" disabled={loading} onclick={() => load()}>새로고침</button></div>
-    <div class="people-grid">{#each people as person (person.id)}<Person {person} onOpen={() => onProfile(person.id)}/>{/each}</div>
-    {#if !loading && !people.length}<p class="hint">{query.trim() ? '검색한 사람을 찾지 못했어요.' : '아직 공개 메모를 쓴 다른 사람이 없어요.'}</p>{/if}<h2 class="section-title">{query.trim() ? '메모 검색 결과' : '최근 공개 메모'}</h2>
+    <div class="social-tabs" aria-label="피드 보기">
+      <button class:selected={feedTab === 'posts'} aria-pressed={feedTab === 'posts'} onclick={() => onFeedTab('posts')}>게시물</button>
+      <button class:selected={feedTab === 'people'} aria-pressed={feedTab === 'people'} onclick={() => onFeedTab('people')}>사람들</button>
+      <button class="refresh" aria-label="피드 새로고침" disabled={loading} onclick={() => load()}><RefreshCw size={17} class={loading ? 'spin' : ''}/></button>
+    </div>
+    <div class="feed-filters">
+      <button class="following-toggle" role="switch" aria-checked={following} onclick={() => { if (!session) onLogin(); else followingOnly = !followingOnly; }}><span class="toggle-track" class:on={following}></span>팔로잉만</button>
+      {#if feedTab === 'posts'}<label class="feed-sort"><span class="sr-only">게시물 정렬</span><select aria-label="게시물 정렬" bind:value={sort}><option value="latest">최신순</option><option value="top">인기순</option></select></label>{/if}
+    </div>
+    {#if feedTab === 'posts' && sort === 'top'}<details class="ranking-info"><summary>최근 7일 · 반응한 사람 순</summary><p>최근 7일에 게시된 메모 중 좋아요나 댓글을 남긴 사람이 많은 순서예요. 작성자 본인과 차단·뮤트한 사람은 제외하고, 같은 사람의 반응은 한 번만 셉니다. 동률이면 최신 게시물이 먼저 나와요.</p></details>{/if}
+    {#if feedTab === 'people'}
+      <h2 class="section-title">{peopleTitle}</h2>
+      <div class="people-grid">{#each people as person (person.id)}<Person {person} onOpen={() => onProfile(person.id)}/>{/each}</div>
+      {#if !loading && !error && !people.length}<div class="social-empty"><UserPlus size={38}/><h2>{query.trim() ? '검색한 사람을 찾지 못했어요' : following ? '아직 팔로우한 사람이 없어요' : '아직 공개 메모를 쓴 다른 사람이 없어요'}</h2><p>{following ? '팔로잉만을 끄고 새로운 사람을 찾아보세요.' : '이름으로 검색해 보세요.'}</p></div>{/if}
+    {/if}
   {:else if view === 'profile'}
     {#if profile}
       <div class="profile-head">
@@ -152,10 +168,10 @@
   {/if}
   {#if error}<div class="error" role="alert">{error}<button onclick={() => load()}>다시 시도</button></div>{/if}
   {#if message}<p class="hint" role="status">{message}</p>{/if}
-  {#if view === 'feed' || view === 'explore' || (view === 'profile' && !profileOnly)}
+  {#if (view === 'feed' && feedTab === 'posts') || (view === 'profile' && !profileOnly)}
     <div class="social-grid" class:list>{#each posts as post (post.note.id)}<NoteCard note={post.note} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
     {#if cursor}<button class="load-more" disabled={loading} onclick={() => load(true)}>{loading ? '불러오는 중…' : '메모 더 보기'}</button>{/if}
-    {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{query.trim() && view !== 'profile' ? '검색한 공개 메모를 찾지 못했어요' : mode === 'following' && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : '아직 공개된 메모가 없어요'}</h2><p>{query.trim() && view !== 'profile' ? '다른 단어나 이름으로 검색해 보세요.' : '탐색에서 사람을 만나거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
+    {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{query.trim() && view !== 'profile' ? '검색한 공개 메모를 찾지 못했어요' : following && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : view === 'feed' && sort === 'top' ? '최근 7일에 공개된 메모가 없어요' : '아직 공개된 메모가 없어요'}</h2><p>{query.trim() && view !== 'profile' ? '다른 단어나 이름으로 검색해 보세요.' : view === 'feed' && sort === 'top' ? '최신순으로 바꾸면 이전 메모도 볼 수 있어요.' : '사람들에서 팔로우하거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
   {/if}
   {#if loading}<p class="hint" role="status">생각을 불러오고 있어요…</p>{/if}
 </section>
@@ -163,9 +179,20 @@
 {#if editing}<Modal label="프로필 편집" onClose={() => { if (!busy) editing = false; }} class="account-dialog"><form class="social-form" onsubmit={saveProfile}><h2>나를 소개해요</h2><div class="avatar-choices">{#each avatarChoices as value}<button type="button" class:selected={avatar === value} aria-label={value || '이름 아바타'} onclick={() => avatar = value}>{value || profile?.name[0].toUpperCase()}</button>{/each}</div><label>표시 이름<input maxlength={40} bind:value={display}/></label><label>소개<textarea maxlength={300} rows={4} bind:value={bio}></textarea></label>{#if error}<p class="error" role="alert">{error}</p>{/if}<div class="section-top"><button type="button" class="text-button" disabled={busy} onclick={() => editing = false}>취소</button><button class="pill" disabled={busy}>저장</button></div></form></Modal>{/if}
 {#if reporting}<Modal label="사용자 신고" onClose={() => reporting = false} class="account-dialog"><form class="social-form" onsubmit={submitReport}><h2>신고하기</h2><label>신고 사유<textarea required maxlength={1000} rows={4} bind:value={reason}></textarea></label>{#if error}<p class="error" role="alert">{error}</p>{/if}<div class="section-top"><button type="button" class="text-button" onclick={() => reporting = false}>취소</button><button class="pill" disabled={busy}>신고 접수</button></div></form></Modal>{/if}
 <style>
-  .social-tabs { display:flex; gap:6px; align-items:center; margin:0 0 24px; border-bottom:1px solid var(--line); padding-bottom:12px; }
+  .social-tabs { display:flex; gap:6px; align-items:center; margin:0 0 14px; border-bottom:1px solid var(--line); padding-bottom:12px; }
   .social-tabs button { padding:10px 22px; font-size:13px; border-radius:22px; color:var(--muted); min-height:44px; }
   .social-tabs button.selected { background:var(--selected); color:var(--fg); font-weight:500; } .social-tabs .refresh { margin-left:auto; padding:10px; display:flex; }
+  .feed-filters { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
+  .following-toggle { display:flex; align-items:center; gap:10px; min-height:44px; font-size:13px; color:var(--muted); }
+  .following-toggle[aria-checked="true"] { color:var(--fg); }
+  .toggle-track { width:32px; height:20px; padding:3px; border-radius:20px; background:var(--line); }
+  .toggle-track::after { content:''; display:block; width:14px; height:14px; border-radius:50%; background:var(--muted); transition:transform .15s; }
+  .toggle-track.on { background:var(--selected); } .toggle-track.on::after { transform:translateX(12px); background:var(--fg); }
+  .feed-sort select { min-height:44px; padding:8px 12px; border:1px solid var(--line); border-radius:20px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; cursor:pointer; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .ranking-info { position:static; margin:-8px 0 24px; font-size:12px; color:var(--muted); }
+  .ranking-info summary { font-size:12px; padding:0; min-height:28px; list-style:disclosure-closed; }
+  .ranking-info p { max-width:560px; line-height:1.8; padding-top:8px; }
   .social-grid { columns:232px; column-gap:16px; } .social-grid.list { columns:1; max-width:600px; margin:auto; }
   .people-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-bottom:30px; }
   .section-top { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:18px; } h2 { font-size:17px; font-weight:500; } .section-title { font-size:13px; color:var(--muted); margin:24px 0 18px; }

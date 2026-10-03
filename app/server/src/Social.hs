@@ -8,13 +8,15 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, defaultTimeLocale, formatTime)
+import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import qualified Data.UUID as UUID
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.Newtypes (Aeson(..))
 import Database.PostgreSQL.Simple.ToField (toField)
 import Servant
+import Text.Read (readMaybe)
+import Database.PostgreSQL.Simple.FromRow (FromRow(..), field)
 import System.Environment (lookupEnv)
 import Auth (auth)
 import Database (Env, db)
@@ -31,9 +33,9 @@ data ReportInput = ReportInput Text (Maybe Text)
 instance FromJSON ReportInput where parseJSON = withObject "Report" $ \o -> ReportInput <$> o .: "reason" <*> o .:? "noteId"
 
 type SocialAPI = "social" :> Header "Authorization" Text :>
-  ( "feed" :> QueryParam "following" Bool :> QueryParam "author" Text :> QueryParam "q" Text :> QueryParam "cursor" Text :> Get '[JSON] Value
+  ( "feed" :> QueryParam "following" Bool :> QueryParam "author" Text :> QueryParam "q" Text :> QueryParam "sort" Text :> QueryParam "cursor" Text :> Get '[JSON] Value
   :<|> "reactions" :> Get '[JSON] [Value]
-  :<|> "people" :> QueryParam "q" Text :> Get '[JSON] [Value]
+  :<|> "people" :> QueryParam "q" Text :> QueryParam "following" Bool :> Get '[JSON] [Value]
   :<|> "profiles" :> Capture "id" Text :> Get '[JSON] Value
   :<|> "profile" :> ReqBody '[JSON] ProfileInput :> Put '[JSON] Value
   :<|> "profiles" :> Capture "id" Text :> Capture "relationship" Text :> ReqBody '[JSON] Flag :> Put '[JSON] Value
@@ -116,29 +118,70 @@ parseCursor (Just cursor) = do
 cursorFor :: UTCTime -> Text -> Text
 cursorFor t ident = T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" t) <> "|" <> ident
 
-feed :: Env -> Maybe Text -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Handler Value
-feed env h following author search cursor = do
-  viewer <- optionalUser env h
-  (before, ident) <- parseCursor cursor
-  db env $ \c -> withTransaction c $ do
-    ns <- query c (noteQuery <> "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR n.owner_id=? OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) AND (?::timestamptz IS NULL OR (n.published_at,n.id)<(?,?)) ORDER BY n.published_at DESC,n.id DESC LIMIT 31") [toField (fromMaybe False following),toField viewer,toField viewer,toField author,toField author,toField (T.take 100 $ T.strip $ fromMaybe "" search),toField viewer,toField viewer,toField viewer,toField before,toField before,toField ident]
-    items <- mapM (post c viewer) (take 30 ns)
-    next <- if length ns <= 30 then pure Nothing else case last (take 30 ns) of
-      Note nid _ _ _ _ _ _ -> do
-        [Only t] <- query c "SELECT published_at FROM notes WHERE id=?" (Only nid)
-        pure $ Just (cursorFor t nid)
-    pure $ object ["items" .= items,"cursor" .= next]
+-- Share exactly the same visibility and relationship filters across both sorts.
+feedFilter :: Query
+feedFilter = "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) "
 
-people :: Env -> Maybe Text -> Maybe Text -> Handler [Value]
-people env h search = do
-  viewer <- optionalUser env h
+data RankedNote = RankedNote Note Int64 UTCTime
+instance FromRow RankedNote where
+  fromRow = RankedNote <$> fromRow <*> field <*> field
+
+-- Top is an app-specific, explainable ranking, not Bluesky's undisclosed formula.
+-- UNION counts a participant once even if they like and leave many replies.
+participantScore :: Query
+participantScore = "CROSS JOIN LATERAL (SELECT count(*) AS score FROM (SELECT user_id FROM likes WHERE note_id=n.id UNION SELECT user_id FROM replies WHERE note_id=n.id AND NOT deleted) a WHERE a.user_id<>n.owner_id AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=a.user_id) OR (b.target_id=? AND b.actor_id=a.user_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=a.user_id)) rank "
+
+parseTopCursor :: Maybe Text -> Handler (UTCTime, Maybe Int64, Maybe UTCTime, Text)
+parseTopCursor cursor = do
+  now <- liftIO getCurrentTime
+  case cursor of
+    Nothing -> pure (now, Nothing, Nothing, "")
+    Just raw -> case T.splitOn "|" raw of
+      ["top", anchor, score, stamp, ident]
+        | Just a <- iso8601ParseM (T.unpack anchor)
+        , Just count <- readMaybe (T.unpack score), count >= (0 :: Int64)
+        , Just t <- iso8601ParseM (T.unpack stamp)
+        , Just _ <- UUID.fromText ident, a <= now, t <= a -> pure (a, Just count, Just t, ident)
+      _ -> err err400 "잘못된 인기순 페이지 요청입니다."
+
+feed :: Env -> Maybe Text -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler Value
+feed env h following author search sorting cursor = do
+  viewer <- if fromMaybe False following then uId <$> auth env h else optionalUser env h
+  let sort = fromMaybe "latest" sorting
+      params = [toField (fromMaybe False following),toField viewer,toField author,toField author,toField (T.take 100 $ T.strip $ fromMaybe "" search),toField viewer,toField viewer,toField viewer]
+  unless (sort `elem` ["latest", "top"]) $ err err400 "정렬은 latest 또는 top을 사용해 주세요."
+  if sort == "top" then do
+    (anchor, score, before, ident) <- parseTopCursor cursor
+    db env $ \c -> withTransaction c $ do
+      ranked <- query c ("SELECT n.id,n.owner_id,n.revision,n.visibility,n.body,n.updated_at,u.name,rank.score,n.published_at FROM notes n JOIN users u ON u.id=n.owner_id " <> participantScore <> feedFilter <> "AND n.published_at>=?::timestamptz-interval '7 days' AND n.published_at<=? AND (?::bigint IS NULL OR (rank.score,n.published_at,n.id)<(?,?,?)) ORDER BY rank.score DESC,n.published_at DESC,n.id DESC LIMIT 31")
+        ([toField viewer,toField viewer,toField viewer] <> params <> [toField anchor,toField anchor,toField score,toField score,toField before,toField ident])
+      items <- mapM (\(RankedNote n _ _) -> post c viewer n) (take 30 ranked)
+      let next = if length ranked <= 30 then Nothing else case last (take 30 ranked) of
+            RankedNote (Note nid _ _ _ _ _ _) count t -> Just ("top|" <> T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" anchor) <> "|" <> T.pack (show count) <> "|" <> cursorFor t nid)
+      pure $ object ["items" .= items,"cursor" .= next]
+  else do
+    (before, ident) <- parseCursor cursor
+    db env $ \c -> withTransaction c $ do
+      ns <- query c (noteQuery <> feedFilter <> "AND (?::timestamptz IS NULL OR (n.published_at,n.id)<(?,?)) ORDER BY n.published_at DESC,n.id DESC LIMIT 31") (params <> [toField before,toField before,toField ident])
+      items <- mapM (post c viewer) (take 30 ns)
+      next <- if length ns <= 30 then pure Nothing else case last (take 30 ns) of
+        Note nid _ _ _ _ _ _ -> do
+          [Only t] <- query c "SELECT published_at FROM notes WHERE id=?" (Only nid)
+          pure $ Just (cursorFor t nid)
+      pure $ object ["items" .= items,"cursor" .= next]
+
+people :: Env -> Maybe Text -> Maybe Text -> Maybe Bool -> Handler [Value]
+people env h search following = do
+  viewer <- if fromMaybe False following then uId <$> auth env h else optionalUser env h
   let term = T.take 100 $ T.strip $ fromMaybe "" search
+      relations = " AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=u.id) OR (b.target_id=? AND b.actor_id=u.id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=u.id) "
   db env $ \c -> do
-    -- Discovery is based on publication, not edits or alphabetical account names.
-    -- Search still finds matching accounts that have never published a note.
-    ids <- if T.null term
-      then query c "SELECT u.id FROM users u JOIN notes n ON n.owner_id=u.id WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND u.id<>? AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=u.id) OR (b.target_id=? AND b.actor_id=u.id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=u.id) GROUP BY u.id ORDER BY max(n.published_at) DESC,u.id LIMIT 12" (viewer,viewer,viewer,viewer)
-      else query c "SELECT u.id FROM users u WHERE position(lower(?) in lower(u.name || ' ' || u.display_name))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=u.id) OR (b.target_id=? AND b.actor_id=u.id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=u.id) ORDER BY u.name,u.id LIMIT 40" (term,viewer,viewer,viewer)
+    ids <- if T.null term && not (fromMaybe False following)
+      then query c ("SELECT u.id FROM users u JOIN notes n ON n.owner_id=u.id WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND u.id<>? " <> relations <> "GROUP BY u.id ORDER BY max(n.published_at) DESC,u.id LIMIT 12") (viewer,viewer,viewer,viewer)
+      -- The following list includes accounts without public notes. Search ranks
+      -- exact/prefix/substring matches first, then boosts follows within a tier.
+      else query c ("SELECT u.id FROM users u CROSS JOIN (SELECT ?::text term,?::text viewer) v WHERE position(lower(v.term) in lower(u.name || ' ' || u.display_name))>0 AND (?=false OR EXISTS(SELECT 1 FROM follows WHERE actor_id=v.viewer AND target_id=u.id)) " <> relations <> "ORDER BY CASE WHEN lower(u.name)=lower(v.term) OR lower(u.display_name)=lower(v.term) THEN 0 WHEN starts_with(lower(u.name),lower(v.term)) OR starts_with(lower(u.display_name),lower(v.term)) THEN 1 ELSE 2 END,EXISTS(SELECT 1 FROM follows WHERE actor_id=v.viewer AND target_id=u.id) DESC,u.name,u.id LIMIT ?")
+        (term,viewer,fromMaybe False following,viewer,viewer,viewer,if T.null term then (100 :: Int) else 40)
     mapM (\(Only ident) -> profile c viewer ident) ids
 
 getProfile :: Env -> Maybe Text -> Text -> Handler Value
