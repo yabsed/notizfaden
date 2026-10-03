@@ -4,11 +4,12 @@
   import { errorMessage, request } from '../api';
   import type { Session } from '../model';
   import { ago, avatarChoices, displayName, type Profile, type Post, type Page, type Notice, type NotificationPage, type Report } from '../social';
-  import SocialCard from './SocialCard.svelte';
+  import NoteCard from './NoteCard.svelte';
   import Person from './Person.svelte';
   import Modal from './Modal.svelte';
-  let { view, profileId = '', session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady }: {
-    view: 'feed' | 'explore' | 'profile' | 'notifications'; profileId?: string; session: Session | null; query: string; list: boolean; revision?: number;
+  let { view, profileId = '', profileOnly = false, session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady, onOpenNote }: {
+    view: 'feed' | 'explore' | 'profile' | 'notifications'; profileId?: string; profileOnly?: boolean; session: Session | null; query: string; list: boolean; revision?: number;
+    onOpenNote: (id: string) => void;
     onRead: (id: string) => void; onProfile: (id: string) => void; onLogin: () => void; onUnread: (count: number) => void; onReady: () => void;
   } = $props();
   let mode = $state<'all' | 'following'>('all');
@@ -37,15 +38,22 @@
         const data: NotificationPage = await endpoint(`/notifications${more && noticeCursor ? `?cursor=${noticeCursor}` : ''}`);
         if (ticket !== serial) return;
         notices = more ? [...notices, ...data.items.filter(n => !notices.some(old => old.id === n.id))] : data.items; noticeCursor = data.cursor; onUnread(data.unread);
+      } else if (view === 'profile') {
+        if (!profileId) return;
+        const person: Profile = await endpoint(`/profiles/${profileId}`);
+        if (ticket !== serial) return;
+        profile = person;
+        if (!profileOnly) { const data: Page<Post> = await endpoint(`/feed?author=${profileId}${more && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); if (ticket !== serial) return; posts = more ? [...posts, ...data.items] : data.items; cursor = data.cursor; }
+        if (person.id === session?.user.id) {
+          try { const reports: Report[] = await endpoint('/admin/reports'); if (ticket === serial) adminReports = reports; } catch { /* Regular accounts have no moderation queue. */ }
+        }
       } else {
         const params = new URLSearchParams();
         if (view === 'feed' && mode === 'following') params.set('following', 'true');
-        if (view === 'profile') { if (!profileId) return; params.set('author', profileId); }
         if (query.trim()) params.set('q', query.trim());
         if (more && cursor) params.set('cursor', cursor);
-        const [data, users, p]: [Page<Post>, Profile[], Profile | null] = await Promise.all([
-          endpoint(`/feed?${params}`), view === 'explore' && !more ? endpoint(`/people?q=${encodeURIComponent(query.trim())}`) : Promise.resolve(people),
-          view === 'profile' && !more ? endpoint(`/profiles/${profileId}`) : Promise.resolve(profile)
+        const [data, users]: [Page<Post>, Profile[]] = await Promise.all([
+          endpoint(`/feed?${params}`), view === 'explore' && !more ? endpoint(`/people?q=${encodeURIComponent(query.trim())}`) : Promise.resolve(people)
         ]);
         while (!more && data.cursor && data.items.length < visibleCount) {
           params.set('cursor', data.cursor);
@@ -55,10 +63,7 @@
         }
         if (ticket !== serial) return;
         posts = more ? [...posts, ...data.items.filter(p => !posts.some(old => old.note.id === p.note.id))] : data.items;
-        cursor = data.cursor; people = users; profile = p;
-        if (p?.id === session?.user.id && !more) {
-          try { const reports: Report[] = await endpoint('/admin/reports'); if (ticket === serial) adminReports = reports; } catch { /* Regular accounts do not have a moderation queue. */ }
-        }
+        cursor = data.cursor; people = users;
       }
     } catch (e) { if (ticket === serial) error = errorMessage(e); }
     finally { if (ticket === serial) { loading = false; await tick(); onReady(); } }
@@ -123,7 +128,7 @@
       <div class="profile-head">
         <span class="avatar profile-avatar">{profile.avatar || displayName(profile)[0]}</span>
         <div class="profile-info"><h2>{displayName(profile)}</h2><p class="handle">@{profile.name}</p><p class="bio">{profile.bio || '작은 생각을 모으는 중이에요.'}</p>
-          <div class="metrics"><span>공개 메모 <b>{profile.posts}</b></span><button onclick={() => showConnections('followers')}>팔로워 <b>{profile.followers}</b></button><button onclick={() => showConnections('following')}>팔로잉 <b>{profile.followingCount}</b></button></div>
+          <div class="metrics"><button onclick={() => showConnections('followers')}>팔로워 <b>{profile.followers}</b></button><button onclick={() => showConnections('following')}>팔로잉 <b>{profile.followingCount}</b></button></div>
         </div>
         {#if session?.user.id === profile.id}<button class="pill" onclick={edit}>프로필 편집</button>
         {:else}<div class="profile-actions">
@@ -134,7 +139,6 @@
       {#if profile.blocked || profile.blockedBy}<p class="hint">차단된 관계에서는 메모를 읽거나 대화할 수 없어요.</p>{:else if profile.muted}<p class="hint">뮤트한 사람의 메모와 알림을 숨기고 있어요.</p>{/if}
       {#if adminReports !== null}<button class="text-button" onclick={() => adminOpen = !adminOpen}>관리자 신고함 ({adminReports.filter(r => !r.resolved).length})</button>{/if}
       {#if adminOpen && adminReports}{#each adminReports as report (report.id)}<div class="report"><button class="text-button" onclick={() => onProfile(report.targetId)}>@{report.targetName}</button><p>{report.reason}</p>{#if report.noteId}<button class="text-button" onclick={() => onRead(report.noteId!)}>메모 보기</button>{/if}<button class="text-button" onclick={() => resolve(report)}>{report.resolved ? '다시 열기' : '검토 완료'}</button></div>{/each}{/if}
-      <h2 class="section-title">공개 메모</h2>
     {:else if !profileId}<div class="social-empty"><UserPlus size={35}/><h2>나의 생각을 소개해 보세요</h2><button class="pill" onclick={onLogin}>로그인</button></div>{/if}
   {:else}
     <div class="section-top"><h2>내 생각에 도착한 소식</h2><div><button class="text-button" onclick={markRead} disabled={!notices.some(n => !n.read)}>모두 읽음</button><button class="text-button" disabled={loading} onclick={() => load()}>새로고침</button></div></div>
@@ -148,10 +152,10 @@
   {/if}
   {#if error}<div class="error" role="alert">{error}<button onclick={() => load()}>다시 시도</button></div>{/if}
   {#if message}<p class="hint" role="status">{message}</p>{/if}
-  {#if view !== 'notifications'}
-    <div class="social-grid" class:list>{#each posts as post (post.note.id)}<SocialCard {post} onOpen={() => onRead(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={like}/>{/each}</div>
+  {#if view === 'feed' || view === 'explore' || (view === 'profile' && !profileOnly)}
+    <div class="social-grid" class:list>{#each posts as post (post.note.id)}<NoteCard note={post.note} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
     {#if cursor}<button class="load-more" disabled={loading} onclick={() => load(true)}>{loading ? '불러오는 중…' : '메모 더 보기'}</button>{/if}
-    {#if !loading && !error && !posts.length && (view !== 'profile' || profile)}<div class="social-empty"><Compass size={38}/><h2>{mode === 'following' && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : '아직 공개된 메모가 없어요'}</h2><p>{view === 'profile' ? '공개한 메모가 이곳에 모여요.' : '탐색에서 사람을 만나거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
+    {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{mode === 'following' && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : '아직 공개된 메모가 없어요'}</h2><p>탐색에서 사람을 만나거나, 내 메모를 공개해 보세요.</p></div>{/if}
   {/if}
   {#if loading}<p class="hint" role="status">생각을 불러오고 있어요…</p>{/if}
 </section>
@@ -167,7 +171,7 @@
   .section-top { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:18px; } h2 { font-size:17px; font-weight:500; } .section-title { font-size:13px; color:var(--muted); margin:24px 0 18px; }
   .social-empty { min-height:240px; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; gap:14px; color:var(--muted); padding:30px 10px; } .social-empty h2 { font-size:16px; } .social-empty p,.hint { font-size:12px; line-height:1.8; color:var(--muted); } .hint { text-align:center; padding:15px; }
   .load-more { display:block; margin:24px auto; padding:12px 28px; border:1px solid var(--line); border-radius:24px; font-size:13px; }
-  .profile-head { display:flex; align-items:flex-start; gap:18px; padding:12px 0 24px; border-bottom:1px solid var(--line); } .profile-avatar { width:64px; height:64px; font-size:30px; margin:0; } .profile-info { flex:1; min-width:0; } .profile-info h2 { font-size:23px; overflow-wrap:anywhere; } .handle { font-size:12px; color:var(--muted); margin:5px 0 14px; } .bio { font-size:13px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .profile-head { display:flex; align-items:flex-start; gap:18px; padding:12px 0 24px; margin-bottom:24px; border-bottom:1px solid var(--line); } .profile-avatar { width:64px; height:64px; font-size:30px; margin:0; } .profile-info { flex:1; min-width:0; } .profile-info h2 { font-size:23px; overflow-wrap:anywhere; } .handle { font-size:12px; color:var(--muted); margin:5px 0 14px; } .bio { font-size:13px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
   .metrics { display:flex; flex-wrap:wrap; gap:12px; align-items:center; font-size:12px; color:var(--muted); margin-top:12px; } .metrics button { padding:8px 0; } b { color:var(--fg); }
   .pill { border:1px solid var(--line); border-radius:22px; padding:10px 18px; font-size:12px; min-height:44px; white-space:nowrap; } .pill:hover,.pill.active { background:var(--selected); } .profile-actions { display:flex; gap:6px; align-items:center; }
   details { position:relative; } summary { list-style:none; cursor:pointer; padding:10px; font-size:20px; } .menu { position:absolute; right:0; top:100%; min-width:140px; background:var(--bg); border:1px solid var(--line); border-radius:8px; z-index:5; box-shadow:var(--shadow); padding:5px; } .menu button { display:block; padding:12px; width:100%; text-align:left; font-size:13px; }

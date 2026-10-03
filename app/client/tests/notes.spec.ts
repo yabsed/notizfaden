@@ -106,6 +106,7 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await expect(visitor.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
   await visitor.getByRole('button', { name: '닫기', exact: true }).click();
   await page.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
+  await page.getByRole('button', { name: '편집', exact: true }).click();
   await page.getByRole('combobox', { name: '공개 범위' }).selectOption('private');
   await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
   await page.getByRole('button', { name: '닫기', exact: true }).click();

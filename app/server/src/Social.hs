@@ -32,6 +32,7 @@ instance FromJSON ReportInput where parseJSON = withObject "Report" $ \o -> Repo
 
 type SocialAPI = "social" :> Header "Authorization" Text :>
   ( "feed" :> QueryParam "following" Bool :> QueryParam "author" Text :> QueryParam "q" Text :> QueryParam "cursor" Text :> Get '[JSON] Value
+  :<|> "reactions" :> Get '[JSON] [Value]
   :<|> "people" :> QueryParam "q" Text :> Get '[JSON] [Value]
   :<|> "profiles" :> Capture "id" Text :> Get '[JSON] Value
   :<|> "profile" :> ReqBody '[JSON] ProfileInput :> Put '[JSON] Value
@@ -50,7 +51,7 @@ type SocialAPI = "social" :> Header "Authorization" Text :>
   )
 
 socialServer :: Env -> Server SocialAPI
-socialServer env header = feed env header :<|> people env header :<|> getProfile env header :<|> editProfile env header
+socialServer env header = feed env header :<|> ownReactions env header :<|> people env header :<|> getProfile env header :<|> editProfile env header
   :<|> relationship env header :<|> connections env header :<|> getPost env header :<|> like env header
   :<|> replies env header :<|> reply env header :<|> deleteReply env header :<|> notifications env header
   :<|> readNotifications env header :<|> report env header :<|> reports env header :<|> resolveReport env header
@@ -89,13 +90,19 @@ withPost env viewer ident action = do
   result <- db env $ \c -> withTransaction c $ do
     n <- readable c viewer ident
     traverse (action c) n
-  maybe (err err404 "공개 메모를 찾을 수 없습니다.") pure result
+  maybe (err err404 "메모를 찾을 수 없습니다.") pure result
 
 post :: Connection -> Text -> Note -> IO Value
 post c viewer n@(Note ident owner _ _ _ _ _) = do
   author <- profile c viewer owner
   [(likes, repliesCount, liked, published)] <- query c "SELECT (SELECT count(*) FROM likes WHERE note_id=?),(SELECT count(*) FROM replies r WHERE r.note_id=? AND NOT r.deleted AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=r.user_id) OR (b.target_id=? AND b.actor_id=r.user_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=r.user_id)),EXISTS(SELECT 1 FROM likes WHERE note_id=? AND user_id=?),published_at FROM notes WHERE id=?" (ident,ident,viewer,viewer,viewer,ident,viewer,ident) :: IO [(Int64,Int64,Bool,Maybe UTCTime)]
   pure $ object ["note" .= publicNote n,"profile" .= author,"likes" .= likes,"replies" .= repliesCount,"liked" .= liked,"publishedAt" .= published]
+
+-- A separate authenticated summary keeps private memo reactions out of the feed.
+ownReactions :: Env -> Maybe Text -> Handler [Value]
+ownReactions env h = do
+  user <- auth env h
+  db env $ \c -> jsonRows c "SELECT jsonb_build_object('id',n.id,'likes',(SELECT count(*) FROM likes WHERE note_id=n.id),'liked',EXISTS(SELECT 1 FROM likes WHERE note_id=n.id AND user_id=n.owner_id),'replies',(SELECT count(*) FROM replies r WHERE r.note_id=n.id AND NOT r.deleted AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=n.owner_id AND b.target_id=r.user_id) OR (b.target_id=n.owner_id AND b.actor_id=r.user_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=n.owner_id AND m.target_id=r.user_id))) FROM notes n WHERE n.owner_id=? AND n.visibility='public' AND NOT (n.body->>'trashed')::boolean" (Only $ uId user)
 
 parseCursor :: Maybe Text -> Handler (Maybe UTCTime,Text)
 parseCursor Nothing = pure (Nothing, "")

@@ -50,6 +50,7 @@
     // frame can otherwise overwrite a selection the user has already made.
     void tick().then(() => {
       if (instance.isDestroyed) return;
+      if (instance.view.hasFocus()) return;
       instance.commands.setTextSelection(instance.state.doc.content.size - 1);
       instance.view.focus();
     });
@@ -57,8 +58,6 @@
   });
 </script>
 
-<div class="rich-editor" bind:this={element}></div>
-{#if limitMessage}<p class="limit-message" role="status">{limitMessage}</p>{/if}
 {#if formatting}
   <div class="format-toolbar" role="group" aria-label="본문 서식">
     <button type="button" title="제목 1" aria-label="제목 1" aria-pressed={active.h1} onmousedown={e => e.preventDefault()} onclick={() => editor?.chain().focus().setHeading({ level: 1 }).run()}>H1</button>
@@ -72,18 +71,21 @@
   </div>
 {/if}
 
+<div class="rich-editor" bind:this={element}></div>
+{#if limitMessage}<p class="limit-message" role="status">{limitMessage}</p>{/if}
+
 <style>
-  .rich-editor { min-height: 180px; max-height: 48dvh; overflow-y: auto; padding: 8px 24px 22px; font-size: 15px; line-height: 1.85; cursor: text; }
-  .rich-editor :global(.tiptap) { min-height: 150px; outline: none; }
+  .rich-editor { min-height: 76px; padding: 8px 24px 20px; font-size: 16px; line-height: 1.85; cursor: text; }
+  .rich-editor :global(.tiptap) { min-height: 48px; outline: none; }
   .rich-editor :global(p.is-editor-empty:first-child::before) { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
-  .format-toolbar { display: flex; align-items: center; width: fit-content; max-width: calc(100% - 32px); margin: 0 16px 12px; padding: 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); box-shadow: var(--shadow); }
+  .format-toolbar { display: flex; align-items: center; width: fit-content; max-width: calc(100% - 48px); margin: 0 24px 12px; padding: 4px; border: 1px solid #8884; border-radius: 8px; background: #8882; }
   .format-toolbar button { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 40px; border-radius: 50%; font-weight: 600; flex-shrink: 0; }
   .format-toolbar button:hover, .format-toolbar button[aria-pressed=true] { background: var(--hover); }
   .separator { height: 26px; width: 1px; background: var(--line); margin: 0 4px; }
   .limit-message { padding: 0 24px; color: var(--muted); font-size: 12px; }
   @media (max-width: 600px) {
-    .rich-editor { max-height: none; min-height: 220px; flex: 1; padding: 10px 22px 24px; font-size: 16px; }
-    .rich-editor :global(.tiptap) { min-height: 190px; }
+    .rich-editor { padding: 10px 22px 20px; }
+    .rich-editor :global(.tiptap) { min-height: 48px; }
     .format-toolbar { overflow-x: auto; flex-shrink: 0; }
     .format-toolbar button { width: 36px; }
   }

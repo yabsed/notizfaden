@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Notes (listOwn, listPublic, getPublic, saveNote, shareNote) where
 
-import Control.Monad (unless, void)
+import Control.Monad (unless, void, when)
 import Data.Aeson
 import Data.List (nub)
 import Data.Maybe (fromMaybe, isJust, isNothing)
@@ -100,6 +100,12 @@ mutate env user ident mutation base supportsRichText incoming sharing = do
     write c rev body visibility = do
       let vis = if visibility == Public then ("public" :: Text) else "private"
       void $ execute c "INSERT INTO notes(id,owner_id,revision,visibility,body,updated_at,published_at) VALUES (?,?,?,?,?,now(),CASE WHEN ?='public' THEN now() ELSE NULL END) ON CONFLICT(id) DO UPDATE SET revision=EXCLUDED.revision,visibility=EXCLUDED.visibility,body=EXCLUDED.body,updated_at=now(),published_at=CASE WHEN notes.published_at IS NULL AND EXCLUDED.visibility='public' THEN now() ELSE notes.published_at END" (ident,uId user,rev,vis,Aeson body,vis)
+      -- Shares/reactions lock the same note row: no interaction can slip into
+      -- the gap between making it private and removing its conversation.
+      when (sharing == Just Private) $ do
+        void $ execute c "DELETE FROM notifications WHERE note_id=?" (Only ident)
+        void $ execute c "DELETE FROM replies WHERE note_id=?" (Only ident)
+        void $ execute c "DELETE FROM likes WHERE note_id=?" (Only ident)
       rows <- query c (noteSelect <> "WHERE n.id=?") (Only ident)
       case rows of
         [note] -> do

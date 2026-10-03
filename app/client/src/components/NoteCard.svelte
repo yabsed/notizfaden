@@ -3,16 +3,22 @@
   import { noteStyle, type LocalNote, type Note, type NoteBody } from '../model';
   import IconButton from './IconButton.svelte';
   import PalettePicker from './PalettePicker.svelte';
+  import NoteReactions from './NoteReactions.svelte';
+  import { displayName, type Profile } from '../social';
+  import type { Reactions } from '../notebookSocial.svelte';
   import RichTextView from './RichTextView.svelte';
-  let { note, own = true, onOpen, onChange, onFork, onTag }: {
+  let { note, own = true, onOpen, onChange, onFork, onTag, reactions, onLike, onConversation, author, onProfile, testId = 'note-card' }: {
+    author?: Profile | null; onProfile?: () => void; testId?: string;
+    reactions?: Reactions; onLike?: () => Promise<void>; onConversation?: () => void;
     note: Note; own?: boolean; onOpen: () => void; onChange?: (patch: Partial<NoteBody>) => void; onFork?: () => void; onTag?: (label: string) => void;
   } = $props();
   let b = $derived(note.body);
   let palette = $state(false);
 </script>
 
-<article class="note-card" class:plain={b.color === 'default'} style={noteStyle(b.color)} data-testid="note-card">
+<article class="note-card" class:plain={b.color === 'default'} style={noteStyle(b.color)} data-testid={testId}>
   <button class="card-open" onclick={onOpen} aria-label={`${b.title || b.content.slice(0, 30) || '빈 메모'} 열기`}></button>
+  <button class="card-author" onclick={onProfile} disabled={!onProfile} aria-label={`${author ? displayName(author) : note.author.name || '나'} 프로필`}><span class="avatar tiny">{author?.avatar || (author ? displayName(author)[0] : note.author.name?.[0] || '나')}</span><span>{author ? displayName(author) : note.author.name || '나'}</span></button>
   {#if own && !b.trashed}
     <div class="pin-action" class:pinned={b.pinned}><IconButton label={b.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={18} active={b.pinned} fill={b.pinned ? 'currentColor' : 'none'} onclick={() => onChange?.({ pinned: !b.pinned })}/></div>
   {/if}
@@ -28,11 +34,9 @@
   {#if b.labels.length}<div class="labels">{#each b.labels as label}<button onclick={() => onTag?.(label)}>{label}</button>{/each}</div>{/if}
   {#if (note as LocalNote).conflict}<span class="conflict-badge">다른 기기의 수정본이 있어요</span>{/if}
   <div class="card-bottom">
-    {#if own}
-      <span class="visibility" title={note.visibility === 'public' ? '전체 공개' : '나만 보기'}>{#if note.visibility === 'public'}<Globe2 size={13}/> 전체 공개{:else}<LockKeyhole size={12}/>{/if}</span>
-    {:else}<span class="author"><span class="avatar tiny">{note.author.name[0].toUpperCase()}</span>{note.author.name}</span>{/if}
+    <span class="visibility" title={note.visibility === 'public' ? '전체 공개' : '나만 보기'}>{#if note.visibility === 'public'}<Globe2 size={13}/> 공개{:else}<LockKeyhole size={12}/> 비공개{/if}</span>
     <div class="card-actions">
-      {#if !own}<IconButton label="내 메모로 이어 쓰기" icon={Copy} size={16} onclick={onFork}/>
+      {#if !own}{#if onFork}<IconButton label="내 메모로 이어 쓰기" icon={Copy} size={16} onclick={onFork}/>{/if}
       {:else if b.trashed}<IconButton label="메모 복원" icon={RotateCcw} size={16} onclick={() => onChange?.({ trashed: false })}/>
       {:else}
         <IconButton label="색상 바꾸기" icon={Palette} size={16} onclick={() => palette = !palette}/>
@@ -41,10 +45,15 @@
       {/if}
     </div>
   </div>
+  {#if note.visibility === 'public' && !b.trashed && onLike && onConversation}<NoteReactions value={reactions} {onLike} {onConversation}/>{/if}
   {#if palette}<div class="card-palette"><PalettePicker selected={b.color} onChange={color => { onChange?.({ color }); palette = false; }}/></div>{/if}
 </article>
 
 <style>
+  .card-author { display:flex; align-items:center; gap:7px; min-height:36px; max-width:calc(100% - 24px); position:relative; font-size:12px; margin:-7px 0 8px; text-align:left; }
+  .card-author > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-author:disabled { opacity:1; }
+
   .note-card {
     position: relative;
     break-inside: avoid;
@@ -197,9 +206,6 @@
     opacity: .7;
   }
 
-  .author + .card-actions {
-    opacity: 1;
-  }
 
   .card-palette {
     position: relative;

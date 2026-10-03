@@ -80,12 +80,20 @@ try:
     call('/social/notifications/'+str(max(x['id'] for x in notices['items'])),'PUT',token=at,expected=204)
     assert call('/social/notifications',token=at)['unread']==0
     n=visibility(n,'private')
+    call('/social/notes/'+nid,token=at,expected=404)
+    assert nid not in [r['id'] for r in call('/social/reactions',token=at)]
     for path in ['/public/'+nid,'/social/notes/'+nid,'/social/notes/'+nid+'/replies']:
         call(path,token=bt,expected=404)
     call('/social/notes/'+nid+'/like','PUT',{'enabled':True},bt,404)
     assert [x['kind'] for x in call('/social/notifications',token=at)['items']]==['follow']
     n=visibility(n,'public')
-    assert call('/social/notes/'+nid)['replies']==1
+    assert call('/social/notes/'+nid)['replies']==0
+    assert call('/social/notes/'+nid)['likes']==0, 'republishing must not resurrect reactions'
+    assert all(x['kind']=='follow' for x in call('/social/notifications',token=at)['items'])
+    summary=next(x for x in call('/social/reactions',token=at) if x['id']==nid)
+    assert summary['likes']==0 and summary['replies']==0
+    call('/social/notes/'+nid+'/replies','POST',reply,bt)
+    call('/social/notes/'+nid+'/like','PUT',{'enabled':True},bt)
     # Mutes hide feeds and incoming notifications; direct links remain readable.
     relation(ai,'mute'); assert nid not in ids(feed()); call('/social/notes/'+nid,token=bt)
     relation(bi,'mute',token=at); assert not call('/social/notifications',token=at)['items']
