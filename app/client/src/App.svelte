@@ -3,7 +3,9 @@
   import { Menu, Search, Lightbulb, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle, House, Bell } from '@lucide/svelte';
   import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
   import { App as NativeApp } from '@capacitor/app';
-  import { db, persist, seed, notesFor } from './db';
+  import { db, persist, seed, notesFor, orderedNotes, moveNote } from './db';
+  import { reorderable } from './reorderable';
+  import { masonry } from './masonry';
   import { errorMessage, request } from './api';
   import { createSession } from './session.svelte';
   import { changeVisibility, createSync, holdEditor, preserveConflict, sync } from './sync.svelte';
@@ -33,6 +35,7 @@
   let view = $state<View>(account.current ? 'feed' : 'notes'), query = $state(''), sidebar = $state(window.innerWidth > 900);
   let list = $state(stored('teum-list', false)), dark = $state(stored('teum-dark', false));
   let editor = $state.raw<LocalNote | null>(null), reader = $state.raw<Note | null>(null);
+  let editorStartEditing = $state(false);
   let authOpen = $state(false), accountOpen = $state(false);
   let targetProfile = $state(''), unread = $state(0), socialRevision = $state(0);
   let feedTab = $state<'posts' | 'people'>('posts');
@@ -48,10 +51,15 @@
   let title = $derived(ownProfile ? '메모' : view === 'profile' ? '프로필' : sections.find(s => s.view === view)?.label || view.slice(6));
   let q = $derived(query.trim().toLowerCase());
   const matches = (n: Note) => [n.body.title, n.body.content, ...n.body.items.map(i => i.text), ...n.body.labels].join(' ').toLowerCase().includes(q);
-  let visible = $derived(notes.filter(n => view === 'trash' ? n.body.trashed : !n.body.trashed && (view === 'archive' ? n.body.archived : view.startsWith('label:') ? n.body.labels.includes(view.slice(6)) : !n.body.archived)).filter(n => view !== 'notes' || visibilityFilter === 'all' || n.visibility === visibilityFilter).filter(matches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  let visible = $derived(orderedNotes(notes, $notebook.order.ids).filter(n => view === 'trash' ? n.body.trashed : !n.body.trashed && (view === 'archive' ? n.body.archived : view.startsWith('label:') ? n.body.labels.includes(view.slice(6)) : !n.body.archived)).filter(n => view !== 'notes' || visibilityFilter === 'all' || n.visibility === visibilityFilter).filter(matches));
   let pinned = $derived(visible.filter(n => n.body.pinned)), others = $derived(visible.filter(n => !n.body.pinned));
   const notify = (text: string) => toast = text;
-  const synchronizer = createSync({ session: () => session, notes: () => notes, editor: () => editor, notify });
+  const synchronizer = createSync({ session: () => session, notes: () => notes, editor: () => editor, order: () => $notebook.order, notify });
+  async function reorderNote(id: string, target: string, path?: string[]) {
+    const currentScope = scope;
+    try { const moved = await moveNote(currentScope, id, target, path); if (moved && scope === currentScope) notify('메모 순서를 저장했어요.'); return moved; }
+    catch { if (scope === currentScope) notify('순서를 저장하지 못했어요. 다시 시도해 주세요.'); return false; }
+  }
 
   let reactionRevision = $derived(notes.map(n => `${n.id}:${n.revision}:${n.body.trashed}`).sort().join(','));
   const emptyReactions = { likes: 0, replies: 0, liked: false };
@@ -125,7 +133,7 @@
   }
   function openProfile(id: string) { if (id === session?.user.id) { visibilityFilter = 'public'; void navigate('notes'); } else void navigate('profile', id); }
   async function socialReady() { await tick(); if (restoreScroll !== null) { window.scrollTo(0, restoreScroll); restoreScroll = null; } }
-  function create(kind: Kind = 'text') { const note = newNote(scope, kind); if (view.startsWith('label:')) note.body.labels = [view.slice(6)]; editor = note; }
+  function create(kind: Kind = 'text') { const note = newNote(scope, kind); if (view.startsWith('label:')) note.body.labels = [view.slice(6)]; editorStartEditing = true; editor = note; }
   async function save(note: LocalNote, body: NoteBody) { if (hasContent(body) || notes.some(n => n.id === note.id)) await persist(note, body); }
   async function update(note: LocalNote, patch: Partial<NoteBody>) {
     try { await persist(note, { ...note.body, ...patch }); if (patch.trashed !== undefined) notify(patch.trashed ? '메모를 휴지통으로 옮겼어요.' : '메모를 복원했어요.'); }
@@ -133,7 +141,7 @@
   }
   async function open(note: LocalNote, discussion = false) {
     const release = holdEditor(note);
-    try { editor = await db.notes.get([note.scope, note.id]) || note; reader = null; if (discussion) { await tick(); requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-discussion]')?.scrollIntoView({ block: 'start' })); } }
+    try { editorStartEditing = false; editor = await db.notes.get([note.scope, note.id]) || note; reader = null; if (discussion) { await tick(); requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-discussion]')?.scrollIntoView({ block: 'start' })); } }
     catch { release(); notify('메모 저장소를 열 수 없습니다.'); }
   }
   async function readPublic(id: string, push = true) {
@@ -173,7 +181,7 @@
     const url = new URL(location.href); url.searchParams.delete('note'); history.replaceState(null, '', url);
   }
   async function fork(note: Note) {
-    try { const current = await request<Note>(`/public/${note.id}`, session), next = newNote(scope); next.body = { ...current.body, pinned: false, archived: false, trashed: false, sourceId: current.id }; await persist(next, next.body); reader = null; navigate('notes'); editor = next; notify('내 비공개 메모로 복사했어요. 생각을 이어 써 보세요.'); }
+    try { const current = await request<Note>(`/public/${note.id}`, session), next = newNote(scope); next.body = { ...current.body, pinned: false, archived: false, trashed: false, sourceId: current.id }; await persist(next, next.body); reader = null; navigate('notes'); editorStartEditing = true; editor = next; notify('내 비공개 메모로 복사했어요. 생각을 이어 써 보세요.'); }
     catch (e) { notify(errorMessage(e)); }
   }
   async function setVisibility(note: LocalNote, visibility: Visibility) {
@@ -204,7 +212,7 @@
   {/each}
 {/snippet}
 {#snippet cards(items: LocalNote[])}
-  <div class="notes-grid" class:list>{#each items as note (note.id)}<NoteCard {note} author={notebookSocial.profile} onProfile={() => session ? openProfile(session.user.id) : authOpen = true} reactions={notebookSocial.reactions[note.id] || emptyReactions} onLike={() => likeOwnNote(note)} onConversation={() => conversationFromCard(note)} onOpen={() => open(note)} onChange={patch => update(note, patch)} onTag={label => navigate(`label:${label}`)}/>{/each}</div>
+  <div class="notes-grid" class:list use:masonry use:reorderable={{ enabled: view !== 'trash', context: `${scope}:${view}:${query}:${visibilityFilter}:${list}`, ids: items.map(n => n.id), onMove: reorderNote }}>{#each items as note (note.id)}<NoteCard {note} canReorder={view !== 'trash' && items.length > 1} author={notebookSocial.profile} onProfile={() => session ? openProfile(session.user.id) : authOpen = true} reactions={notebookSocial.reactions[note.id] || emptyReactions} onLike={() => likeOwnNote(note)} onConversation={() => conversationFromCard(note)} onOpen={() => open(note)} onChange={patch => update(note, patch)} onTag={label => navigate(`label:${label}`)}/>{/each}</div>
 {/snippet}
 
 <div class="app" class:sidebar-open={sidebar} class:sidebar-closed={!sidebar}>
@@ -253,14 +261,14 @@
   </main>
   <nav class="bottom-nav" aria-label="주요 화면">{#each sections.slice(0, 3) as item}<button class:selected={view === item.view || (item.view === 'notes' && view === 'profile' && (!targetProfile || targetProfile === session?.user.id))} onclick={() => navigate(item.view)}><item.icon size={21}/><span>{item.label}</span>{#if item.view === 'notifications' && unread}<b>{unread > 99 ? '99+' : unread}</b>{/if}</button>{/each}</nav>
   <button class="mobile-create" aria-label="새 메모" onclick={() => create()}><Plus size={28}/></button>
-  {#if editorCurrent}{#key editorCurrent.id}<Editor note={editorCurrent} onSync={syncDiscussion} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++} onClose={closeEditor} onSave={save} onVisibility={setVisibility} {session} onSource={readPublic}/>{/key}{/if}
+  {#if editorCurrent}{#key editorCurrent.id}<Editor note={editorCurrent} startEditing={editorStartEditing} onSync={syncDiscussion} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++} onClose={closeEditor} onSave={save} onVisibility={setVisibility} {session} onSource={readPublic}/>{/key}{/if}
   {#if reader}<PublicReader note={reader} {session} onClose={closeReader} onFork={() => reader && fork(reader)} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++}/>{/if}
   {#if authOpen}<AuthDialog onClose={() => authOpen = false} onSession={connect}/>{/if}
   {#if accountOpen && session}<Modal label="내 계정" onClose={() => accountOpen = false} class="account-dialog">
     <div class="dialog-heading"><span class="avatar">{session.user.name[0].toUpperCase()}</span><IconButton label="닫기" icon={X} onclick={() => accountOpen = false}/></div>
     <h2>{session.user.name}의 메모장</h2><p>메모는 이 기기에 자동으로 저장되고,<br/>연결되면 계정의 다른 기기에도 반영됩니다.</p>
     <button class="account-action" onclick={exportNotes}><Download size={18}/> 내 메모 내보내기</button><button class="account-action" onclick={logout}><LogOut size={18}/> 로그아웃</button>
-    {#if synchronizer.pending > 0}<p class="small">아직 동기화되지 않은 메모 {synchronizer.pending}개가 있어요. 로그아웃해도 이 기기에 보관되며 같은 계정으로 다시 로그인하면 전송합니다.</p>{/if}
+    {#if synchronizer.pending > 0}<p class="small">아직 동기화되지 않은 변경 {synchronizer.pending}개가 있어요. 로그아웃해도 이 기기에 보관되며 같은 계정으로 다시 로그인하면 전송합니다.</p>{/if}
   </Modal>{/if}
   {#if toast}<div class="toast" role="status"><Check size={16}/>{toast}<IconButton label="알림 닫기" icon={X} size={15} onclick={() => toast = ''}/></div>{/if}
 </div>
@@ -551,13 +559,16 @@
   }
 
   .notes-grid {
-    columns: 232px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr));
+    grid-auto-rows: 1px;
+    align-items: start;
     column-gap: 16px;
     margin-bottom: 25px;
   }
 
   .notes-grid.list {
-    columns: 1;
+    grid-template-columns: minmax(0, 1fr);
     max-width: 600px;
     margin-left: auto;
     margin-right: auto;
@@ -684,7 +695,7 @@
     }
 
     .notes-grid {
-      columns: 248px;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr));
     }
   }
 
@@ -715,7 +726,7 @@
     }
 
     .notes-grid {
-      columns: 215px;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 215px), 1fr));
     }
   }
 
@@ -776,7 +787,7 @@
     }
 
     .notes-grid {
-      columns: 210px;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
     }
 
     .workspace-head {
@@ -889,7 +900,7 @@
     }
 
     .notes-grid {
-      columns: 2;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       column-gap: 10px;
       margin-bottom: 22px;
     }
@@ -939,7 +950,7 @@
 
   @media (max-width: 360px) {
     .notes-grid {
-      columns: 1;
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .workspace-head > span {

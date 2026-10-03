@@ -52,6 +52,7 @@ test('format selection, undo/redo, headings, persistence, search and safe checkl
   await expect(card.locator('h2 .rich-bold.rich-italic.rich-underline')).toHaveText('강조할 문장');
   await page.getByRole('button', { name: '서식 검증 열기', exact: true }).click();
   await expect(content.locator('h2 strong em u')).toHaveText('강조할 문장');
+  await content.click();
   await page.getByRole('button', { name: '체크리스트로 바꾸기', exact: true }).click();
   await page.getByRole('button', { name: '취소', exact: true }).click();
   await expect(content.locator('h2')).toHaveText('강조할 문장');
@@ -72,7 +73,8 @@ test('clear formatting, safe pasted HTML, legacy text and mobile toolbar', async
   await page.getByRole('button', { name: '어두운 테마', exact: true }).click();
   await page.getByRole('button', { name: '메모는 이렇게 써요 열기', exact: true }).click();
   const content = page.getByRole('textbox', { name: '메모 내용' });
-  await expect(content).toContainText('카드를 누르면 바로 편집할 수 있어요.');
+  await expect(content).toContainText('카드를 누르면 자세히 볼 수 있어요.');
+  await content.click();
   await page.getByRole('button', { name: '서식 도구', exact: true }).click();
   await content.fill('<b>그대로 남길 문자열</b>');
   await content.press('ControlOrMeta+a');

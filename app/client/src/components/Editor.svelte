@@ -12,12 +12,12 @@
   import IconButton from './IconButton.svelte';
   import Modal from './Modal.svelte';
   import PalettePicker from './PalettePicker.svelte';
-  let { note, onSave, onClose, onVisibility, session, onSource, readOnly = false, onSync, onProfile, onLogin, onChanged, onFork }: {
-    readOnly?: boolean; onSync: (note: LocalNote) => Promise<void>; onProfile: (id: string) => void; onLogin: () => void; onChanged: () => void; onFork?: () => void;
+  let { note, onSave, onClose, onVisibility, session, onSource, readOnly = false, startEditing = false, onSync, onProfile, onLogin, onChanged, onFork }: {
+    readOnly?: boolean; startEditing?: boolean; onSync: (note: LocalNote) => Promise<void>; onProfile: (id: string) => void; onLogin: () => void; onChanged: () => void; onFork?: () => void;
     note: LocalNote; onSave: (note: LocalNote, body: NoteBody) => Promise<void>; onClose: () => void;
     onVisibility: (note: LocalNote, visibility: Visibility) => Promise<void>; session: Session | null; onSource: (id: string) => void;
   } = $props();
-  let editing = $state(untrack(() => !readOnly && note.visibility === 'private'));
+  let editing = $state(untrack(() => !readOnly && startEditing));
   let viewing = $derived(readOnly || !editing);
   let body = $state(structuredClone(untrack(() => note.body)));
   let palette = $state(false), tagOpen = $state(false), tag = $state('');
@@ -107,20 +107,20 @@
       {#if !unavailable || !readOnly}
       <section class="note-surface" aria-label="메모 내용">
       <div class="editor-title">
-        <input aria-label="메모 제목" placeholder="제목" maxlength={300} readonly={viewing} bind:value={body.title}/>
+        <input aria-label="메모 제목" placeholder="제목" maxlength={300} readonly={viewing} onclick={() => { if (!readOnly) editing = true; }} bind:value={body.title}/>
         {#if !viewing}<IconButton label={body.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={21} active={body.pinned} fill={body.pinned ? 'currentColor' : 'none'} onclick={() => body.pinned = !body.pinned}/>{/if}
       </div>
-      {#if body.kind === 'text' && viewing}<div class="reader-content"><RichTextView text={body.content} richText={body.richText}/></div>
+      {#if body.kind === 'text' && readOnly}<div class="reader-content"><RichTextView text={body.content} richText={body.richText}/></div>
       {:else if body.kind === 'text'}
-        <RichTextEditor text={body.content} richText={body.richText} {formatting} bind:editor={richEditor}
+        <RichTextEditor text={body.content} richText={body.richText} {formatting} editable={!viewing} onActivate={() => editing = true} bind:editor={richEditor}
           onChange={(text, value) => { body.content = text; body.richText = value; }}
           onHistory={(undo, redo) => { canUndo = undo; canRedo = redo; }}/>
       {:else}
         <div class="editor-checklist">
           {#each body.items as item, index (item.id)}
             <div class="editor-item" class:completed={item.done}>
-              <input type="checkbox" aria-label={`${item.text} 완료`} disabled={viewing} bind:checked={item.done}/>
-              <input aria-label={`항목 ${index + 1}`} placeholder="목록 항목" maxlength={3000} readonly={viewing} bind:value={item.text} onkeydown={e => { if (!viewing && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void insert(index + 1); } }}/>
+              <input type="checkbox" aria-label={`${item.text} 완료`} disabled={readOnly} onchange={() => { if (!readOnly) editing = true; }} bind:checked={item.done}/>
+              <input aria-label={`항목 ${index + 1}`} placeholder="목록 항목" maxlength={3000} readonly={viewing} onclick={() => { if (!readOnly) editing = true; }} bind:value={item.text} onkeydown={e => { if (!viewing && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); void insert(index + 1); } }}/>
               {#if !viewing}<IconButton label="항목 삭제" icon={X} size={16} onclick={() => body.items.splice(index, 1)}/>{/if}
             </div>
           {/each}

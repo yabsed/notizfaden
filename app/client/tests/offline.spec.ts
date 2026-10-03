@@ -16,6 +16,7 @@ test('installed web shell and notes reopen fully offline', async ({ browser }) =
   await expect(page.getByText('인터넷 없이도 남아 있는 메모', { exact: true })).toBeVisible();
   await expect(page.getByTestId('note-card').filter({ hasText: '인터넷 없이도 남아 있는 메모' }).locator('.rich-bold')).toHaveText('인터넷 없이도 남아 있는 메모');
   await page.getByRole('button', { name: '인터넷 없이도 남아 있는 메모 열기', exact: true }).click();
+  await page.getByRole('textbox', { name: '메모 내용' }).click();
   await page.getByRole('textbox', { name: '메모 내용' }).fill('오프라인에서 수정한 메모');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await page.reload();

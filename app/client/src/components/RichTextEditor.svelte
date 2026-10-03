@@ -6,8 +6,8 @@
   import { Placeholder } from '@tiptap/extensions';
   import { Bold, Italic, Underline, RemoveFormatting } from '@lucide/svelte';
   import { documentFor, MAX_TEXT_LENGTH, MAX_RICH_BYTES, plainText, type RichText } from '../richText';
-  let { text, richText, formatting, editor = $bindable<Editor | null>(null), onChange, onHistory }: {
-    text: string; richText?: RichText | null; formatting: boolean; editor?: Editor | null;
+  let { text, richText, formatting, editable = true, onActivate, editor = $bindable<Editor | null>(null), onChange, onHistory }: {
+    text: string; richText?: RichText | null; formatting: boolean; editable?: boolean; onActivate?: () => void; editor?: Editor | null;
     onChange: (text: string, value: RichText) => void;
     onHistory: (undo: boolean, redo: boolean) => void;
   } = $props();
@@ -15,9 +15,14 @@
   let active = $state({ h1: false, h2: false, paragraph: true, bold: false, italic: false, underline: false });
   let limitMessage = $state('');
 
+  $effect(() => {
+    if (!editor) return;
+    editor.setEditable(editable, false);
+  });
+
   onMount(() => {
     const instance = new Editor({
-      element,
+      element, editable,
       content: documentFor(text, richText),
       extensions: [
         StarterKit.configure({ heading: { levels: [1, 2] }, blockquote: false, bulletList: false, orderedList: false, listItem: false, listKeymap: false, code: false, codeBlock: false, horizontalRule: false, link: false, strike: false, trailingNode: false }),
@@ -35,7 +40,23 @@
           })]
         })
       ],
-      editorProps: { attributes: { class: 'rich-document', role: 'textbox', 'aria-label': '메모 내용', 'aria-multiline': 'true', spellcheck: 'true' } },
+      editorProps: {
+        attributes: () => ({ class: 'rich-document', role: 'textbox', 'aria-label': '메모 내용', 'aria-multiline': 'true', 'aria-readonly': String(!editable), tabindex: '0', spellcheck: 'true' }),
+        handleDOMEvents: {
+          click: (view, event) => {
+            if (editable || !onActivate || !view.state.selection.empty) return false;
+            // Resolve the caret before showing the toolbar changes the layout.
+            const position = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+            onActivate(); instance.setEditable(true, false);
+            if (position !== undefined) instance.commands.setTextSelection(position);
+            view.focus(); return true;
+          },
+          keydown: (view, event) => {
+            if (editable || !onActivate || event.key !== 'Enter') return false;
+            event.preventDefault(); onActivate(); instance.setEditable(true, false); view.focus(); return true;
+          }
+        }
+      },
       onUpdate: ({ editor: current }) => {
         const doc = current.getJSON();
         onChange(plainText(doc), { version: 1, doc });
@@ -49,7 +70,7 @@
     // Wait for Modal.showModal(), then focus synchronously. A delayed animation
     // frame can otherwise overwrite a selection the user has already made.
     void tick().then(() => {
-      if (instance.isDestroyed) return;
+      if (instance.isDestroyed || !editable) return;
       if (instance.view.hasFocus()) return;
       instance.commands.setTextSelection(instance.state.doc.content.size - 1);
       instance.view.focus();

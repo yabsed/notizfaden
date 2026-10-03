@@ -18,6 +18,7 @@ import Database (Env, openDatabase, db)
 import Database.PostgreSQL.Simple (Only(..), query_)
 import Model
 import Notes
+import Ordering
 import Social
 
 type API = "api" :> (NoteAPI :<|> SocialAPI)
@@ -29,6 +30,8 @@ type NoteAPI =
   :<|> "auth" :> "logout" :> Header "Authorization" Text :> Post '[JSON] NoContent
   :<|> "me" :> Header "Authorization" Text :> Get '[JSON] User
   :<|> "notes" :> Header "Authorization" Text :> Get '[JSON] [Note]
+  :<|> "note-order" :> Header "Authorization" Text :> Get '[JSON] NoteOrder
+  :<|> "note-order" :> Header "Authorization" Text :> ReqBody '[JSON] NoteOrder :> Put '[JSON] NoteOrder
   :<|> "notes" :> Header "Authorization" Text :> Capture "id" Text :> ReqBody '[JSON] Save :> Put '[JSON] Note
   :<|> "notes" :> Header "Authorization" Text :> Capture "id" Text :> "visibility" :> ReqBody '[JSON] Sharing :> Patch '[JSON] Note
   :<|> "public" :> Header "Authorization" Text :> Get '[JSON] [Note]
@@ -38,7 +41,7 @@ server :: Env -> Server API
 server env = noteServer env :<|> socialServer env
 
 noteServer :: Env -> Server NoteAPI
-noteServer env = health env :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
+noteServer env = health env :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> getOrder env :<|> saveOrder env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
 
 -- Test clients must check the actual database, even when a proxy is misconfigured.
 health :: Env -> Handler Value

@@ -50,7 +50,7 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     await expect(visitor.getByTestId('social-card')).toHaveCount(8);
     await expect(visitor.getByText('아직 나만 보는 생각')).toHaveCount(0);
     await expect(visitor.getByText('개인라벨')).toHaveCount(0);
-    expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('2');
+    expect(await visitor.getByTestId('social-card').evaluateAll(cards => new Set(cards.map(card => card.getBoundingClientRect().x)).size)).toBe(2);
     expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await visitor.evaluate(() => window.scrollTo(0, 0));
     await visitor.screenshot({ path: info.outputPath('keep-social-mobile.png'), fullPage: false });
@@ -95,7 +95,7 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     await visitor.evaluate(() => window.scrollTo(0, 0));
     await visitor.screenshot({ path: info.outputPath('keep-social-mobile-dark.png'), fullPage: false });
     await visitor.getByRole('button', { name: '목록 보기', exact: true }).click();
-    expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('1');
+    expect(await visitor.getByTestId('social-card').evaluateAll(cards => new Set(cards.map(card => card.getBoundingClientRect().x)).size)).toBe(1);
     await visitor.getByRole('button', { name: '카드 보기', exact: true }).click();
     await visitor.locator('.social-tabs').getByRole('button', { name: '사람들', exact: true }).click();
     await expect(visitor.getByRole('heading', { name: '내가 팔로우하는 사람들', exact: true })).toBeVisible();
@@ -150,6 +150,8 @@ test('public tab contains profile; shared detail has top tools and privacy remov
   await card.getByRole('button', { name: '통합 메모 열기' }).click();
   let dialog = page.getByRole('dialog', { name: '메모 편집', exact: true });
   await expect(dialog.locator('.discussion')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: '편집', exact: true })).toBeVisible();
+  await dialog.getByRole('textbox', { name: '메모 내용', exact: true }).click();
   await dialog.screenshot({ path: info.outputPath('private-edit-detail.png') });
   await expect(dialog.getByRole('alert')).toHaveCount(0);
   const toolbar = await dialog.locator('.editor-toolbar').boundingBox();
@@ -189,7 +191,8 @@ test('public tab contains profile; shared detail has top tools and privacy remov
   await dialog.screenshot({ path: info.outputPath('public-edit-detail.png') });
   await dialog.getByRole('button', { name: '편집 완료', exact: true }).click();
   await expect(dialog.getByRole('button', { name: '서식 도구' })).toHaveCount(0);
-  await expect(dialog.locator('.reader-content')).toHaveText('편집과 대화가 같은 곳에');
+  await expect(dialog.getByRole('textbox', { name: '메모 내용', exact: true })).toHaveAttribute('contenteditable', 'false');
+  await expect(dialog.getByRole('textbox', { name: '메모 내용', exact: true })).toHaveText('편집과 대화가 같은 곳에');
   await dialog.getByRole('button', { name: '편집', exact: true }).click();
   await dialog.getByRole('combobox', { name: '공개 범위', exact: true }).selectOption('private');
   await expect(dialog.locator('.discussion')).toHaveCount(0);

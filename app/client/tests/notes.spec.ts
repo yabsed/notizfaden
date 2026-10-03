@@ -79,12 +79,14 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await second.getByRole('dialog').getByRole('button', { name: '로그인', exact: true }).click();
   await expect(second.getByText('두 기기에서 이어지는 생각', { exact: true })).toBeVisible();
   await second.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
+  await second.getByRole('textbox', { name: '메모 내용' }).click();
   await second.getByRole('textbox', { name: '메모 내용' }).fill('두 번째 기기에서 수정한 생각');
   await second.getByRole('button', { name: '닫기', exact: true }).click();
   await expect(second.locator('.sync-status')).toHaveText('동기화됨');
   await page.locator('.sync-status').click();
   await expect(page.getByText('두 번째 기기에서 수정한 생각', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
+  await page.getByRole('button', { name: '편집', exact: true }).click();
   // A failed visibility request must leave the control at the server-confirmed value.
   await page.route('**/api/notes/*/visibility', route => route.fulfill({ status: 503, json: { message: '공개 변경 실패' } }));
   await page.getByRole('combobox', { name: '공개 범위' }).selectOption('public');
@@ -138,9 +140,11 @@ test('offline simultaneous edits keep both versions after reconnect', async ({ p
   await expect(offline.getByText('원래 내용', { exact: true })).toBeVisible();
   await device.setOffline(true);
   await offline.getByRole('button', { name: '동시 수정 열기', exact: true }).click();
+  await offline.getByRole('textbox', { name: '메모 내용' }).click();
   await offline.getByRole('textbox', { name: '메모 내용' }).fill('오프라인 수정본');
   await offline.getByRole('button', { name: '닫기', exact: true }).click();
   await page.getByRole('button', { name: '동시 수정 열기', exact: true }).click();
+  await page.getByRole('textbox', { name: '메모 내용' }).click();
   await page.getByRole('textbox', { name: '메모 내용' }).fill('온라인 수정본');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await expect(page.locator('.sync-status')).toHaveText('동기화됨');

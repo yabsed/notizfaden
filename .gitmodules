@@ -16,3 +16,6 @@
 [submodule "submodules/bluesky-social-app"]
 	path = submodules/bluesky-social-app
 	url = https://github.com/bluesky-social/social-app.git
+[submodule "submodules/launcher3"]
+	path = submodules/launcher3
+	url = https://android.googlesource.com/platform/packages/apps/Launcher3

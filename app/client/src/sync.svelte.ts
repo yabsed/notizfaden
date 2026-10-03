@@ -1,5 +1,5 @@
 import { onMount, untrack } from 'svelte';
-import { db } from './db';
+import { db, readOrder, writeOrder } from './db';
 import { ApiError, errorMessage, request } from './api';
 import { newNote, uid, type LocalNote, type Note, type Session, type Visibility } from './model';
 
@@ -54,6 +54,18 @@ export function sync(session: Session) {
         if (!latest || (!latest.dirty && note.revision >= latest.revision)) await db.notes.put({ ...note, scope, dirty: false, mutationId: uid() });
       }
     });
+    const capturedOrder = await readOrder(scope);
+    // A newly created offline note must reach the server before its ID can be
+    // included in the personal ordering. Failed note uploads stay retryable.
+    const remoteIds = new Set(remote.map(note => note.id));
+    if (capturedOrder.dirty && capturedOrder.ids.some(id => !remoteIds.has(id))) return;
+    const savedOrder = await request<{ ids: string[] }>('/note-order', session, capturedOrder.dirty ? 'PUT' : 'GET', capturedOrder.dirty ? { ids: capturedOrder.ids } : undefined);
+    await db.transaction('rw', db.settings, async () => {
+      const latest = await readOrder(scope);
+      if (latest.mutationId === capturedOrder.mutationId) {
+        await writeOrder(scope, { ids: savedOrder.ids, dirty: false, mutationId: capturedOrder.mutationId });
+      }
+    });
   };
   const locked = async () => navigator.locks ? navigator.locks.request(`teum-sync-${session.user.id}`, work) : work();
   running = locked().finally(() => { running = null; });
@@ -84,6 +96,7 @@ interface SyncSources {
   session: () => Session | null;
   notes: () => LocalNote[];
   editor: () => LocalNote | null;
+  order: () => { dirty: boolean; mutationId: string };
   notify: (message: string) => void;
 }
 
@@ -91,7 +104,7 @@ interface SyncSources {
 export function createSync(source: SyncSources) {
   let syncing = $state(false);
   let error = $state('');
-  const pending = $derived(source.notes().filter(needsUpload).length);
+  const pending = $derived(source.notes().filter(needsUpload).length + (source.order().dirty ? 1 : 0));
   const status = $derived(
     !source.session() ? '이 기기에 저장됨'
     : error ? '연결 대기 중'
@@ -124,7 +137,7 @@ export function createSync(source: SyncSources) {
     return () => clearInterval(timer);
   });
   $effect(() => {
-    source.notes();
+    source.notes(); source.order().mutationId;
     if (!source.session() || source.editor() || !pending) return;
     const timer = setTimeout(() => void run(true), 800);
     return () => clearTimeout(timer);

@@ -1,7 +1,10 @@
 <script lang="ts">
   import { untrack, tick } from 'svelte';
+  import { reorderable } from '../reorderable';
+  import { masonry } from '../masonry';
+  import { moveInOrder } from '../reordering';
   import { Compass, RefreshCw, Heart, MessageCircle, UserPlus, Bell } from '@lucide/svelte';
-  import { errorMessage, request } from '../api';
+  import { ApiError, errorMessage, request } from '../api';
   import type { Session } from '../model';
   import { ago, avatarChoices, displayName, type Profile, type Post, type Page, type Notice, type NotificationPage, type Report } from '../social';
   import NoteCard from './NoteCard.svelte';
@@ -22,18 +25,40 @@
   let reporting = $state(false), reason = $state(''), message = $state('');
   let adminReports = $state.raw<Report[] | null>(null), adminOpen = $state(false);
   const identity = () => `${session?.token || ''}:${view}:${profileId}`;
-  let contextKey = '';
+  let contextKey = $state('');
+  let temporaryOrder = $state<string[]>([]), hasNewPosts = $state(false), feedLoaded = $state(false);
+  let orderedPosts = $derived.by(() => {
+    const byId = new Map(posts.map(post => [post.note.id, post]));
+    const arranged = temporaryOrder.flatMap(id => { const post = byId.get(id); byId.delete(id); return post ? [post] : []; });
+    return [...arranged, ...byId.values()];
+  });
+  async function movePost(id: string, target: string, path?: string[]) {
+    const ids = orderedPosts.map(post => post.note.id);
+    if (id === target || !ids.includes(id) || !ids.includes(target)) return false;
+    const next = moveInOrder(ids, id, target, path);
+    if (next.join() === ids.join()) return false;
+    temporaryOrder = next;
+    return true;
+  }
   let serial = 0, touchStart: number | null = null, pull = $state(0);
   const endpoint = (path: string, method = 'GET', body?: unknown) => request<any>(`/social${path}`, session, method, body);
   $effect(() => {
     const key = `${identity()}:${query}:${feedTab}:${following}:${sort}`; revision;
-    untrack(() => { if (contextKey === key) return; contextKey = key; posts = []; people = []; notices = []; profile = null; cursor = null; noticeCursor = null; error = ''; connections = null; editing = false; reporting = false; adminOpen = false; adminReports = null; message = ''; reason = ''; busy = false; loading = true; });
-    const timer = setTimeout(() => void load(), 180);
+    const sameContext = untrack(() => contextKey === key);
+    untrack(() => { if (sameContext) return; contextKey = key; temporaryOrder = []; hasNewPosts = false; feedLoaded = false; posts = []; people = []; notices = []; profile = null; cursor = null; noticeCursor = null; error = ''; connections = null; editing = false; reporting = false; adminOpen = false; adminReports = null; message = ''; reason = ''; busy = false; loading = true; });
+    const background = sameContext && view === 'feed' && feedTab === 'posts' && untrack(() => feedLoaded);
+    const timer = setTimeout(() => void load(false, background), 180);
     return () => { clearTimeout(timer); serial++; };
   });
-  async function load(more = false) {
+  // Check for arrivals without inserting them into the current reading session.
+  $effect(() => {
+    if (view !== 'feed' || feedTab !== 'posts') return;
+    const timer = setInterval(() => { if (!document.hidden && !loading && feedLoaded) void load(false, true); }, 30000);
+    return () => clearInterval(timer);
+  });
+  async function load(more = false, background = false) {
     const ticket = ++serial, visibleCount = posts.length;
-    loading = true; error = '';
+    if (!background) { loading = true; error = ''; }
     try {
       if (view === 'notifications') {
         if (!session) { notices = []; return; }
@@ -61,6 +86,7 @@
         }
         params.set('sort', sort);
         const data: Page<Post> = await endpoint(`/feed?${params}`);
+        if (ticket !== serial) return;
         while (!more && data.cursor && data.items.length < visibleCount) {
           params.set('cursor', data.cursor);
           const next: Page<Post> = await endpoint(`/feed?${params}`);
@@ -68,10 +94,26 @@
           data.items.push(...next.items); data.cursor = next.cursor;
         }
         if (ticket !== serial) return;
-        posts = more ? [...posts, ...data.items.filter(p => !posts.some(old => old.note.id === p.note.id))] : data.items;
-        cursor = data.cursor;
+        if (background) {
+          const updated = new Map<string, Post | null>(data.items.map(post => [post.note.id, post]));
+          // Arrivals may push an existing card past the fetched page boundary.
+          // Verify missing cards individually instead of mistaking that for deletion.
+          await Promise.all(posts.filter(post => !updated.has(post.note.id)).map(async post => {
+            try { updated.set(post.note.id, await endpoint(`/notes/${post.note.id}`)); }
+            catch (e) { updated.set(post.note.id, e instanceof ApiError && [403, 404].includes(e.status) ? null : post); }
+          }));
+          if (ticket !== serial) return;
+          hasNewPosts = data.items.some(post => !posts.some(old => old.note.id === post.note.id));
+          // Keep the baseline order as well as the temporary arrangement.
+          // Removed/private posts disappear; existing reactions can update.
+          posts = posts.flatMap(post => { const next = updated.get(post.note.id); return next ? [next] : []; });
+        } else {
+          posts = more ? [...posts, ...data.items.filter(p => !posts.some(old => old.note.id === p.note.id))] : data.items;
+          cursor = data.cursor;
+          if (!more) { temporaryOrder = []; hasNewPosts = false; feedLoaded = true; }
+        }
       }
-    } catch (e) { if (ticket === serial) error = errorMessage(e); }
+    } catch (e) { if (ticket === serial && !background) error = errorMessage(e); }
     finally { if (ticket === serial) { loading = false; await tick(); onReady(); } }
   }
   async function like(p: Post) {
@@ -116,8 +158,8 @@
     try { await endpoint(`/admin/reports/${report.id}`, 'PUT', { enabled: !report.resolved }); if (identity() !== context) return; const rows: Report[] = await endpoint('/admin/reports'); if (identity() === context) adminReports = rows; }
     catch (e) { if (identity() === context) error = errorMessage(e); }
   }
-  function startTouch(e: TouchEvent) { touchStart = window.scrollY < 5 ? e.touches[0].clientY : null; }
-  function moveTouch(e: TouchEvent) { if (touchStart !== null) pull = Math.max(0, e.touches[0].clientY - touchStart); }
+  function startTouch(e: TouchEvent) { touchStart = e.touches.length === 1 && window.scrollY < 5 ? e.touches[0].clientY : null; }
+  function moveTouch(e: TouchEvent) { if (e.defaultPrevented) { touchStart = null; pull = 0; return; } if (touchStart !== null) pull = Math.max(0, e.touches[0].clientY - touchStart); }
   function endTouch() { if (pull > 90 && !loading) void load(); touchStart = null; pull = 0; }
 </script>
 <svelte:window ontouchstart={startTouch} ontouchmove={moveTouch} ontouchend={endTouch}/>
@@ -169,7 +211,8 @@
   {#if error}<div class="error" role="alert">{error}<button onclick={() => load()}>다시 시도</button></div>{/if}
   {#if message}<p class="hint" role="status">{message}</p>{/if}
   {#if (view === 'feed' && feedTab === 'posts') || (view === 'profile' && !profileOnly)}
-    <div class="social-grid" class:list>{#each posts as post (post.note.id)}<NoteCard note={post.note} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
+    {#if view === 'feed'}<div class="feed-arrangement">{#if temporaryOrder.length}<span role="status">임시 배치</span><button class="text-button" onclick={() => temporaryOrder = []}>원래 순서로</button>{/if}{#if hasNewPosts}<button class="text-button new-posts" disabled={loading} onclick={() => load()}>새 글 보기</button>{/if}</div>{/if}
+    <div class="social-grid" class:list use:masonry use:reorderable={{ enabled: view === 'feed' && feedTab === 'posts', context: `${contextKey}:${list}`, ids: orderedPosts.map(post => post.note.id), onMove: movePost }}>{#each orderedPosts as post (post.note.id)}<NoteCard note={post.note} canReorder={view === 'feed' && orderedPosts.length > 1} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
     {#if cursor}<button class="load-more" disabled={loading} onclick={() => load(true)}>{loading ? '불러오는 중…' : '메모 더 보기'}</button>{/if}
     {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{query.trim() && view !== 'profile' ? '검색한 공개 메모를 찾지 못했어요' : following && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : view === 'feed' && sort === 'top' ? '최근 7일에 공개된 메모가 없어요' : '아직 공개된 메모가 없어요'}</h2><p>{query.trim() && view !== 'profile' ? '다른 단어나 이름으로 검색해 보세요.' : view === 'feed' && sort === 'top' ? '최신순으로 바꾸면 이전 메모도 볼 수 있어요.' : '사람들에서 팔로우하거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
   {/if}
@@ -179,6 +222,8 @@
 {#if editing}<Modal label="프로필 편집" onClose={() => { if (!busy) editing = false; }} class="account-dialog"><form class="social-form" onsubmit={saveProfile}><h2>나를 소개해요</h2><div class="avatar-choices">{#each avatarChoices as value}<button type="button" class:selected={avatar === value} aria-label={value || '이름 아바타'} onclick={() => avatar = value}>{value || profile?.name[0].toUpperCase()}</button>{/each}</div><label>표시 이름<input maxlength={40} bind:value={display}/></label><label>소개<textarea maxlength={300} rows={4} bind:value={bio}></textarea></label>{#if error}<p class="error" role="alert">{error}</p>{/if}<div class="section-top"><button type="button" class="text-button" disabled={busy} onclick={() => editing = false}>취소</button><button class="pill" disabled={busy}>저장</button></div></form></Modal>{/if}
 {#if reporting}<Modal label="사용자 신고" onClose={() => reporting = false} class="account-dialog"><form class="social-form" onsubmit={submitReport}><h2>신고하기</h2><label>신고 사유<textarea required maxlength={1000} rows={4} bind:value={reason}></textarea></label>{#if error}<p class="error" role="alert">{error}</p>{/if}<div class="section-top"><button type="button" class="text-button" onclick={() => reporting = false}>취소</button><button class="pill" disabled={busy}>신고 접수</button></div></form></Modal>{/if}
 <style>
+  .feed-arrangement { display:flex; align-items:center; gap:8px; min-height:36px; margin:-8px 0 16px; font-size:12px; color:var(--muted); }
+  .feed-arrangement .new-posts { margin-left:auto; }
   .social-tabs { display:flex; gap:6px; align-items:center; margin:0 0 14px; border-bottom:1px solid var(--line); padding-bottom:12px; }
   .social-tabs button { padding:10px 22px; font-size:13px; border-radius:22px; color:var(--muted); min-height:44px; }
   .social-tabs button.selected { background:var(--selected); color:var(--fg); font-weight:500; } .social-tabs .refresh { margin-left:auto; padding:10px; display:flex; }
@@ -193,7 +238,7 @@
   .ranking-info { position:static; margin:-8px 0 24px; font-size:12px; color:var(--muted); }
   .ranking-info summary { font-size:12px; padding:0; min-height:28px; list-style:disclosure-closed; }
   .ranking-info p { max-width:560px; line-height:1.8; padding-top:8px; }
-  .social-grid { columns:232px; column-gap:16px; } .social-grid.list { columns:1; max-width:600px; margin:auto; }
+  .social-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,232px),1fr)); grid-auto-rows:1px; align-items:start; column-gap:16px; } .social-grid.list { grid-template-columns:minmax(0,1fr); max-width:600px; margin:auto; }
   .people-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-bottom:30px; }
   .section-top { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:18px; } h2 { font-size:17px; font-weight:500; } .section-title { font-size:13px; color:var(--muted); margin:24px 0 18px; }
   .social-empty { min-height:240px; display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; gap:14px; color:var(--muted); padding:30px 10px; } .social-empty h2 { font-size:16px; } .social-empty p,.hint { font-size:12px; line-height:1.8; color:var(--muted); } .hint { text-align:center; padding:15px; }
@@ -204,6 +249,6 @@
   details { position:relative; } summary { list-style:none; cursor:pointer; padding:10px; font-size:20px; } .menu { position:absolute; right:0; top:100%; min-width:140px; background:var(--bg); border:1px solid var(--line); border-radius:8px; z-index:5; box-shadow:var(--shadow); padding:5px; } .menu button { display:block; padding:12px; width:100%; text-align:left; font-size:13px; }
   .notices { max-width:800px; margin:auto; } .notice { display:flex; align-items:center; gap:14px; padding:20px; border:1px solid var(--line); border-radius:9px; margin-bottom:10px; width:100%; text-align:left; font-size:13px; line-height:1.8; } .notice.unread { background:var(--selected); } .notice-icon { color:#677c69; } .notice small { display:block; color:var(--muted); font-size:11px; } .notice strong { margin-right:2px; } .notice i { width:7px; height:7px; border-radius:50%; background:#4b5f88; margin-left:auto; flex-shrink:0; }
   .social-form { display:grid; gap:18px; } .social-form label { display:grid; gap:8px; font-size:13px; } .social-form input,.social-form textarea { padding:12px; border:1px solid var(--line); background:var(--bg); border-radius:7px; width:100%; resize:vertical; } .avatar-choices { display:flex; flex-wrap:wrap; gap:5px; } .avatar-choices button { width:44px; height:44px; border-radius:50%; font-size:23px; } .avatar-choices .selected { background:var(--selected); outline:2px solid #78927f; } .report { border:1px solid var(--line); border-radius:8px; padding:12px; margin:12px 0; font-size:13px; } .report p { white-space:pre-wrap; overflow-wrap:anywhere; }
-  @media(max-width:600px) { .social-grid { columns:2; column-gap:10px; } .social-tabs { margin-bottom:18px; } .profile-head { gap:12px; flex-wrap:wrap; } .profile-avatar { width:48px; height:48px; font-size:24px; } .profile-info h2 { font-size:19px; } .profile-actions { margin-left:auto; } .section-top h2 { font-size:14px; } .section-top .text-button { font-size:11px; padding:8px; } }
-  @media(max-width:360px) { .social-grid { columns:1; } }
+  @media(max-width:600px) { .social-grid { grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:10px; } .social-tabs { margin-bottom:18px; } .profile-head { gap:12px; flex-wrap:wrap; } .profile-avatar { width:48px; height:48px; font-size:24px; } .profile-info h2 { font-size:19px; } .profile-actions { margin-left:auto; } .section-top h2 { font-size:14px; } .section-top .text-button { font-size:11px; padding:8px; } }
+  @media(max-width:360px) { .social-grid { grid-template-columns:minmax(0,1fr); } }
 </style>

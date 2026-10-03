@@ -7,7 +7,8 @@
   import { displayName, type Profile } from '../social';
   import type { Reactions } from '../notebookSocial.svelte';
   import RichTextView from './RichTextView.svelte';
-  let { note, own = true, onOpen, onChange, onFork, onTag, reactions, onLike, onConversation, author, onProfile, testId = 'note-card' }: {
+  let { note, own = true, canReorder = false, onOpen, onChange, onFork, onTag, reactions, onLike, onConversation, author, onProfile, testId = 'note-card' }: {
+    canReorder?: boolean;
     author?: Profile | null; onProfile?: () => void; testId?: string;
     reactions?: Reactions; onLike?: () => Promise<void>; onConversation?: () => void;
     note: Note; own?: boolean; onOpen: () => void; onChange?: (patch: Partial<NoteBody>) => void; onFork?: () => void; onTag?: (label: string) => void;
@@ -16,8 +17,8 @@
   let palette = $state(false);
 </script>
 
-<article class="note-card" class:plain={b.color === 'default'} style={noteStyle(b.color)} data-testid={testId}>
-  <button class="card-open" onclick={onOpen} aria-label={`${b.title || b.content.slice(0, 30) || '빈 메모'} 열기`}></button>
+<article class="note-card" class:plain={b.color === 'default'} class:reorderable={canReorder} draggable={false} style={noteStyle(b.color)} data-note-id={note.id} data-testid={testId}>
+  <button class="card-open" title={canReorder ? '클릭해 자세히 보기 · 드래그해 이동 · Alt+방향키로 순서 변경' : undefined} aria-keyshortcuts={canReorder ? 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Alt+Home Alt+End' : undefined} onclick={onOpen} aria-label={`${b.title || b.content.slice(0, 30) || '빈 메모'} 열기`}></button>
   <button class="card-author" onclick={onProfile} disabled={!onProfile} aria-label={`${author ? displayName(author) : note.author.name || '나'} 프로필`}><span class="avatar tiny">{author?.avatar || (author ? displayName(author)[0] : note.author.name?.[0] || '나')}</span><span>{author ? displayName(author) : note.author.name || '나'}</span></button>
   {#if own && !b.trashed}
     <div class="pin-action" class:pinned={b.pinned}><IconButton label={b.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={18} active={b.pinned} fill={b.pinned ? 'currentColor' : 'none'} onclick={() => onChange?.({ pinned: !b.pinned })}/></div>
@@ -50,13 +51,18 @@
 </article>
 
 <style>
+  .reorderable .card-open { cursor:grab; user-select:none; -webkit-touch-callout:none; }
+  .note-card:global([data-reorder-ready]) { box-shadow:0 4px 16px #0003; }
+  .note-card:global([data-dragging]) .card-open { cursor:grabbing; }
+  .note-card:global([data-dragging]) { opacity:.35; }
+  .note-card:global([data-drop]) { outline:2px solid var(--fg); outline-offset:3px; }
   .card-author { display:flex; align-items:center; gap:7px; min-height:36px; max-width:calc(100% - 24px); position:relative; font-size:12px; margin:-7px 0 8px; text-align:left; }
   .card-author > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .card-author:disabled { opacity:1; }
 
   .note-card {
     position: relative;
-    break-inside: avoid;
+    min-width: 0;
     margin-bottom: 16px;
     border: 1px solid transparent;
     border-radius: 8px;
