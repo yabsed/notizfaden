@@ -12,6 +12,7 @@ import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.Newtypes (Aeson(..))
 import Servant
 import Auth (auth)
+import Social (optionalUser, blocked)
 import Database (Env, db)
 import Model
 import RichText (richTextContent)
@@ -25,13 +26,22 @@ listOwn env header = do
   user <- auth env header
   db env $ \c -> query c (noteSelect <> "WHERE n.owner_id=? ORDER BY n.updated_at DESC") (Only $ uId user)
 
-listPublic :: Env -> Handler [Note]
-listPublic env = db env $ \c -> query_ c (noteSelect <> "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean ORDER BY n.published_at DESC LIMIT 100")
+listPublic :: Env -> Maybe Text -> Handler [Note]
+listPublic env h = do
+  viewer <- optionalUser env h
+  db env $ \c -> map publicNote <$> query c (noteSelect <> "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes WHERE actor_id=? AND target_id=n.owner_id) ORDER BY n.published_at DESC,n.id DESC LIMIT 100") (viewer,viewer,viewer)
 
-getPublic :: Env -> Text -> Handler Note
-getPublic env ident = do
-  rows <- db env $ \c -> query c (noteSelect <> "WHERE n.id=? AND n.visibility='public' AND NOT (n.body->>'trashed')::boolean") (Only ident)
-  case rows of [n] -> pure n; _ -> err err404 "공개 메모를 찾을 수 없습니다."
+getPublic :: Env -> Maybe Text -> Text -> Handler Note
+getPublic env h ident = do
+  viewer <- optionalUser env h
+  result <- db env $ \c -> do
+    rows <- query c (noteSelect <> "WHERE n.id=? AND n.visibility='public' AND NOT (n.body->>'trashed')::boolean") (Only ident)
+    case rows of
+      [n@(Note _ owner _ _ _ _ _)] -> do
+        denied <- blocked c viewer owner
+        pure $ if denied then Nothing else Just (publicNote n)
+      _ -> pure Nothing
+  maybe (err err404 "공개 메모를 찾을 수 없습니다.") pure result
 
 validUUID :: Text -> Bool
 validUUID = maybe False (const True) . UUID.fromText
@@ -71,8 +81,10 @@ mutate env user ident mutation base supportsRichText incoming sharing = do
             sourceOK <- case nSourceId body of
               Nothing -> pure True
               Just src -> do
-                allowed <- query c "SELECT id FROM notes WHERE id=? AND visibility='public' AND NOT (body->>'trashed')::boolean" (Only src) :: IO [Only Text]
-                pure $ not (null allowed)
+                allowed <- query c "SELECT owner_id FROM notes WHERE id=? AND visibility='public' AND NOT (body->>'trashed')::boolean FOR SHARE" (Only src) :: IO [Only Text]
+                case allowed of
+                  [Only owner] -> not <$> blocked c (uId user) owner
+                  _ -> pure False
             if sourceOK then write c 1 body Private else pure $ Left (Left (404,Nothing))
           _ -> pure $ Left (Left (409, Nothing))
   case result of

@@ -17,8 +17,11 @@ import Auth
 import Database (Env, openDatabase)
 import Model
 import Notes
+import Social
 
-type API = "api" :>
+type API = "api" :> (NoteAPI :<|> SocialAPI)
+
+type NoteAPI =
   ( "health" :> Get '[JSON] Value
   :<|> "auth" :> "register" :> ReqBody '[JSON] Credentials :> Post '[JSON] Value
   :<|> "auth" :> "login" :> ReqBody '[JSON] Credentials :> Post '[JSON] Value
@@ -27,11 +30,14 @@ type API = "api" :>
   :<|> "notes" :> Header "Authorization" Text :> Get '[JSON] [Note]
   :<|> "notes" :> Header "Authorization" Text :> Capture "id" Text :> ReqBody '[JSON] Save :> Put '[JSON] Note
   :<|> "notes" :> Header "Authorization" Text :> Capture "id" Text :> "visibility" :> ReqBody '[JSON] Sharing :> Patch '[JSON] Note
-  :<|> "public" :> Get '[JSON] [Note]
-  :<|> "public" :> Capture "id" Text :> Get '[JSON] Note )
+  :<|> "public" :> Header "Authorization" Text :> Get '[JSON] [Note]
+  :<|> "public" :> Header "Authorization" Text :> Capture "id" Text :> Get '[JSON] Note )
 
 server :: Env -> Server API
-server env = pure (object ["status" .= ("ok" :: Text)]) :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
+server env = noteServer env :<|> socialServer env
+
+noteServer :: Env -> Server NoteAPI
+noteServer env = pure (object ["status" .= ("ok" :: Text)]) :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
 
 main :: IO ()
 main = do
@@ -40,7 +46,7 @@ main = do
   host <- fromMaybe "127.0.0.1" <$> lookupEnv "BIND_HOST"
   origins <- map (B.pack . T.unpack . T.strip) . T.splitOn "," . T.pack . fromMaybe "http://localhost:5173,http://127.0.0.1:5173,https://localhost" <$> lookupEnv "ALLOWED_ORIGINS"
   env <- openDatabase (B.pack url)
-  let policy = simpleCorsResourcePolicy { corsOrigins=Just (origins,False), corsRequestHeaders=["Content-Type","Authorization"], corsMethods=["GET","POST","PUT","PATCH","OPTIONS"] }
+  let policy = simpleCorsResourcePolicy { corsOrigins=Just (origins,False), corsRequestHeaders=["Content-Type","Authorization"], corsMethods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"] }
       app :: Application
       app = cors (const $ Just policy) $ \req send -> serve (Proxy :: Proxy API) (server env) req (send . mapResponseHeaders (("Cache-Control","no-store"):))
   putStrLn $ "Notizfaden Haskell API listening on " ++ host ++ ":" ++ show port

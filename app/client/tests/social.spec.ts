@@ -1,0 +1,127 @@
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { Session } from '../src/model';
+
+async function api(request: APIRequestContext, path: string, session: Session, method = 'GET', data?: unknown) {
+  const result = await request.fetch(`/api${path}`, { method, data, headers: { Authorization: `Bearer ${session.token}` } });
+  expect(result.ok(), `${method} ${path}: ${await result.text()}`).toBeTruthy();
+  return result.status() === 204 ? null : result.json();
+}
+async function account(request: APIRequestContext) {
+  const result = await request.post('/api/auth/register', { data: { username: 'sns_' + crypto.randomUUID().slice(0, 15).replaceAll('-', ''), password: 'social-browser-password' } });
+  expect(result.ok()).toBeTruthy(); return result.json() as Promise<Session>;
+}
+async function signIn(page: Page, session: Session) { await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session); }
+
+test('Keep cards connect profiles, follows, reactions, replies, notifications and privacy on mobile', async ({ page, browser, request }, info) => {
+  test.setTimeout(60000);
+  const writer = await account(request), reader = await account(request);
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const visitor = await mobile.newPage(); visitor.on('pageerror', e => errors.push(e.message));
+  const titles = ['오늘 발견한 작은 기쁨', '주말에 하고 싶은 일', '기억하고 싶은 문장', '산책의 기록', '요즘 읽는 책', '함께 만드는 메모장', '천천히 가도 괜찮아', '저녁의 플레이리스트'];
+  const colors = ['yellow','green','pink','lightblue','orange','purple','cyan','default'];
+  let noteId = '';
+  try {
+    for (let i = 0; i < 9; i++) {
+      const id = crypto.randomUUID();
+      const body = { title: titles[i] || '아직 나만 보는 생각', content: ['골목에서 만난 고양이.\n따뜻한 커피 한 잔.\n오늘도 생각보다 좋은 하루였다.', '서두르지 않고 걷기\n새로운 음악 듣기', '작은 생각도 나누면 이야기가 된다.'][i % 3], kind: 'text', items: [], color: colors[i] || 'default', labels: ['개인라벨'], pinned: false, archived: false, trashed: false, sourceId: null };
+      const n = await api(request, `/notes/${id}`, writer, 'PUT', { body, baseRevision: 0, mutationId: crypto.randomUUID() });
+      if (i < 8) await api(request, `/notes/${id}/visibility`, writer, 'PATCH', { visibility: 'public', baseRevision: n.revision, mutationId: crypto.randomUUID() });
+      if (!i) noteId = id;
+    }
+    await signIn(page, writer); await signIn(visitor, reader);
+    await page.goto('/?view=profile');
+    await page.getByRole('button', { name: '프로필 편집', exact: true }).click();
+    await page.getByLabel('표시 이름', { exact: true }).fill('산책하는 기록가');
+    await page.getByLabel('소개', { exact: true }).fill('매일의 작은 장면을 모아요.');
+    await page.getByRole('button', { name: '🌱', exact: true }).click();
+    await page.getByRole('button', { name: '저장', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: '산책하는 기록가', exact: true })).toBeVisible();
+    await visitor.goto(`/?view=profile&profile=${writer.user.id}`);
+    await visitor.getByRole('button', { name: '팔로우', exact: true }).click();
+    await expect(visitor.getByRole('button', { name: '팔로잉 · 해제', exact: true })).toBeVisible();
+    await visitor.getByRole('button', { name: '팔로워 1', exact: true }).click();
+    await expect(visitor.getByRole('dialog', { name: '팔로워' })).toContainText(reader.user.name);
+    await visitor.getByRole('button', { name: '닫기', exact: true }).click();
+    await visitor.locator('.bottom-nav').getByRole('button', { name: '피드', exact: true }).click();
+    await visitor.locator('.social-tabs').getByRole('button', { name: '팔로잉', exact: true }).click();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(8);
+    await expect(visitor.getByText('아직 나만 보는 생각')).toHaveCount(0);
+    await expect(visitor.getByText('개인라벨')).toHaveCount(0);
+    expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('2');
+    expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await visitor.evaluate(() => window.scrollTo(0, 0));
+    await visitor.screenshot({ path: info.outputPath('keep-social-mobile.png'), fullPage: false });
+    const card = visitor.getByTestId('social-card').filter({ hasText: titles[0] });
+    await visitor.route('**/api/social/notes/*/like', r => r.fulfill({ status: 503, json: { message: '다시 시도해 주세요.' } }));
+    await card.getByRole('button', { name: '좋아요', exact: true }).click();
+    await expect(card.getByRole('button', { name: '좋아요', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await visitor.unroute('**/api/social/notes/*/like');
+    await card.getByRole('button', { name: '좋아요', exact: true }).click();
+    await expect(card.getByRole('button', { name: '좋아요 취소', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await card.getByRole('button', { name: '답글 보기', exact: true }).click();
+    const dialog = visitor.getByRole('dialog', { name: '공개 메모', exact: true });
+    await dialog.getByRole('textbox', { name: '답글', exact: true }).fill('이런 작은 발견이 좋아요.');
+    await dialog.getByRole('button', { name: '답글 보내기', exact: true }).click();
+    await expect(dialog.getByTestId('reply')).toHaveCount(1);
+    await expect(dialog.getByTestId('reply')).toContainText('이런 작은 발견이 좋아요.');
+    await page.goto('/?view=notifications');
+    await expect(page.locator('.notice')).toHaveCount(3);
+    await expect(page.locator('.notice.unread')).toHaveCount(3);
+    await page.getByRole('button', { name: '모두 읽음', exact: true }).click();
+    await expect(page.locator('.notice.unread')).toHaveCount(0);
+    await page.goto('/?view=notes');
+    await page.locator('.note-filters').getByRole('button', { name: '비공개', exact: true }).click();
+    await expect(page.getByTestId('note-card')).toHaveCount(1);
+    await page.locator('.note-filters').getByRole('button', { name: '공개', exact: true }).click();
+    await expect(page.getByTestId('note-card')).toHaveCount(8);
+    await page.getByRole('button', { name: `${titles[0]} 열기`, exact: true }).click();
+    await expect(page.getByText('전체 공개 · 수정한 내용도 다른 사람에게 보여요.')).toBeVisible();
+    await page.getByRole('textbox', { name: '메모 내용', exact: true }).fill('수정한 생각에도 대화는 그대로 남아요.');
+    await page.getByRole('button', { name: '닫기', exact: true }).click();
+    await expect(page.locator('.sync-status')).toHaveText('동기화됨');
+    await dialog.getByRole('button', { name: '새로고침', exact: true }).click();
+    await expect(dialog.locator('.reader-content')).toHaveText('수정한 생각에도 대화는 그대로 남아요.');
+    await expect(dialog.getByTestId('reply')).toHaveCount(1);
+    await dialog.getByRole('button', { name: '닫기', exact: true }).click();
+    await visitor.getByRole('button', { name: '어두운 테마', exact: true }).click();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(8);
+    await visitor.evaluate(() => window.scrollTo(0, 0));
+    await visitor.screenshot({ path: info.outputPath('keep-social-mobile-dark.png'), fullPage: false });
+    await visitor.getByRole('button', { name: '목록 보기', exact: true }).click();
+    expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('1');
+    await visitor.getByRole('button', { name: '카드 보기', exact: true }).click();
+    await visitor.locator('.bottom-nav').getByRole('button', { name: '탐색', exact: true }).click();
+    await visitor.getByRole('searchbox').fill('산책하는 기록가');
+    await expect(visitor.locator('.people-grid')).toContainText('산책하는 기록가');
+    await visitor.locator('.people-grid').getByRole('button').filter({ hasText: writer.user.name }).click();
+    await visitor.getByLabel('사용자 메뉴', { exact: true }).click();
+    await visitor.getByRole('button', { name: '뮤트', exact: true }).click();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(0);
+    await visitor.getByRole('button', { name: '뮤트 해제', exact: true }).click();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(8);
+    await visitor.getByRole('button', { name: '차단', exact: true }).click();
+    await expect(visitor.getByText('차단된 관계에서는 메모를 읽거나 대화할 수 없어요.')).toBeVisible();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(0);
+    await visitor.getByRole('button', { name: '차단 해제', exact: true }).click();
+    await expect(visitor.getByTestId('social-card')).toHaveCount(8);
+    await visitor.getByTestId('social-card').filter({ hasText: titles[0] }).getByRole('button', { name: '답글 보기' }).click();
+    await page.getByRole('button', { name: `${titles[0]} 열기`, exact: true }).click();
+    await page.getByRole('combobox', { name: '공개 범위', exact: true }).selectOption('private');
+    await expect(page.getByRole('combobox', { name: '공개 범위', exact: true })).toHaveValue('private');
+    await page.getByRole('button', { name: '닫기', exact: true }).click();
+    await dialog.getByRole('button', { name: '새로고침', exact: true }).click();
+    await expect(dialog).toContainText('이 메모는 더 이상 열람할 수 없어요.');
+    await expect(dialog.getByTestId('reply')).toHaveCount(0);
+    await page.goto(`/?view=profile&profile=${writer.user.id}`);
+    await expect(page.getByTestId('social-card')).toHaveCount(7);
+    await page.screenshot({ path: info.outputPath('keep-social-desktop-profile.png'), fullPage: true });
+    expect(errors).toEqual([]);
+  } finally {
+    await mobile.close();
+    const notes = await api(request, '/notes', writer);
+    for (const n of notes) if (n.visibility === 'public') await api(request, `/notes/${n.id}/visibility`, writer, 'PATCH', { visibility: 'private', baseRevision: n.revision, mutationId: crypto.randomUUID() });
+  }
+});

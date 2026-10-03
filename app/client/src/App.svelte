@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
-  import { Menu, Search, Lightbulb, Compass, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle } from '@lucide/svelte';
+  import { onMount, untrack, tick } from 'svelte';
+  import { Menu, Search, Lightbulb, Compass, Archive, Trash2, Tag, LayoutGrid, Rows3, Moon, Sun, Cloud, CloudOff, RefreshCw, Plus, CheckSquare, X, Download, LogOut, LockKeyhole, Check, ArrowRight, AlertCircle, House, Bell, UserRound } from '@lucide/svelte';
   import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
   import { App as NativeApp } from '@capacitor/app';
   import { db, persist, seed, notesFor } from './db';
@@ -14,23 +14,30 @@
   import Modal from './components/Modal.svelte';
   import NoteCard from './components/NoteCard.svelte';
   import PublicReader from './components/PublicReader.svelte';
+  import SocialView from './components/SocialView.svelte';
+  import type { Post, NotificationPage } from './social';
 
-  type View = 'notes' | 'explore' | 'archive' | 'trash' | `label:${string}`;
+  type View = 'feed' | 'profile' | 'notifications' | 'notes' | 'explore' | 'archive' | 'trash' | `label:${string}`;
   const sections: { view: View; label: string; icon: typeof Menu }[] = [
-    { view: 'notes', label: '메모', icon: Lightbulb }, { view: 'explore', label: '둘러보기', icon: Compass },
+    { view: 'feed', label: '피드', icon: House }, { view: 'explore', label: '탐색', icon: Compass },
+    { view: 'notes', label: '메모', icon: Lightbulb }, { view: 'notifications', label: '알림', icon: Bell }, { view: 'profile', label: '프로필', icon: UserRound },
     { view: 'archive', label: '보관함', icon: Archive }, { view: 'trash', label: '휴지통', icon: Trash2 }
   ];
   function stored<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; } }
-  const account = createSession(() => { editor = null; accountOpen = false; });
+  const account = createSession(() => { readSequence++; editor = null; reader = null; accountOpen = false; targetProfile = ''; unread = 0; view = 'notes'; query = ''; });
   let session = $derived(account.current);
   let scope = $derived(session?.user.id || 'guest');
   let notebook = $derived(notesFor(scope));
   let notes = $derived($notebook.notes);
-  let view = $state<View>('notes'), query = $state(''), sidebar = $state(window.innerWidth > 900);
+  let view = $state<View>(account.current ? 'feed' : 'notes'), query = $state(''), sidebar = $state(window.innerWidth > 900);
   let list = $state(stored('teum-list', false)), dark = $state(stored('teum-dark', false));
   let editor = $state.raw<LocalNote | null>(null), reader = $state.raw<Note | null>(null);
   let authOpen = $state(false), accountOpen = $state(false);
-  let feed = $state.raw<Note[]>([]), feedLoading = $state(false), feedError = $state('');
+  let targetProfile = $state(''), unread = $state(0), socialRevision = $state(0);
+  let visibilityFilter = $state<'all' | Visibility>('all');
+  let isSocial = $derived(['feed', 'explore', 'profile', 'notifications'].includes(view));
+  const scrollPositions = new Map<string, number>();
+  let restoreScroll: number | null = null, readSequence = 0;
   let toast = $state(''), initError = $state('');
   let search: HTMLInputElement;
   let editorCurrent = $derived(editor ? notes.find(n => n.id === editor!.id) || editor : null);
@@ -38,9 +45,8 @@
   let title = $derived(sections.find(s => s.view === view)?.label || view.slice(6));
   let q = $derived(query.trim().toLowerCase());
   const matches = (n: Note) => [n.body.title, n.body.content, ...n.body.items.map(i => i.text), ...n.body.labels, ...(view === 'explore' ? [n.author.name] : [])].join(' ').toLowerCase().includes(q);
-  let visible = $derived(notes.filter(n => view === 'trash' ? n.body.trashed : !n.body.trashed && (view === 'archive' ? n.body.archived : view.startsWith('label:') ? n.body.labels.includes(view.slice(6)) : !n.body.archived)).filter(matches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  let visible = $derived(notes.filter(n => view === 'trash' ? n.body.trashed : !n.body.trashed && (view === 'archive' ? n.body.archived : view.startsWith('label:') ? n.body.labels.includes(view.slice(6)) : !n.body.archived)).filter(n => view !== 'notes' || visibilityFilter === 'all' || n.visibility === visibilityFilter).filter(matches).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   let pinned = $derived(visible.filter(n => n.body.pinned)), others = $derived(visible.filter(n => !n.body.pinned));
-  let publicNotes = $derived(feed.filter(matches));
   const notify = (text: string) => toast = text;
   const synchronizer = createSync({ session: () => session, notes: () => notes, editor: () => editor, notify });
 
@@ -52,37 +58,54 @@
   $effect(() => { localStorage.setItem('teum-list', JSON.stringify(list)); });
   $effect(() => { if (!toast) return; const t = setTimeout(() => toast = '', 4500); return () => clearTimeout(t); });
   $effect(() => {
-    if (view !== 'explore') return;
-    untrack(() => void loadFeed());
-    const t = setInterval(loadFeed, 15000); return () => clearInterval(t);
-  });
-  $effect(() => {
-    const id = reader?.id;
-    if (!id) return;
-    const t = setInterval(async () => {
-      try { const latest = await request<Note>(`/public/${id}`); if (reader?.id === id) reader = latest; }
-      catch { if (reader?.id === id) { reader = null; notify('공개 메모를 더 이상 열람할 수 없습니다.'); } }
-    }, 15000);
-    return () => clearInterval(t);
+    const current = session;
+    if (!current) { unread = 0; return; }
+    let alive = true;
+    const refresh = async () => {
+      try { const data = await request<NotificationPage>('/social/notifications', current); if (alive) unread = data.unread; } catch { /* Keep the last confirmed badge on a transient failure. */ }
+    };
+    void refresh(); const timer = setInterval(refresh, 30000);
+    return () => { alive = false; clearInterval(timer); };
   });
   onMount(() => {
     seed().catch(() => initError = '기기 저장소를 열지 못했어요. 브라우저의 저장 공간을 확인해 주세요.');
     fromLink();
     if (!Capacitor.isNativePlatform()) return;
     const listener = NativeApp.addListener('backButton', () => {
-      if (reader) closeReader();
-      else if (editor) document.querySelector<HTMLDialogElement>('.editor-dialog')?.dispatchEvent(new Event('cancel', { cancelable: true }));
-      else if (authOpen) authOpen = false;
-      else if (accountOpen) accountOpen = false;
+      const dialog = Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).at(-1);
+      if (dialog) dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
       else if (sidebar) sidebar = false;
+      else if (view !== 'notes') navigate('notes');
       else void NativeApp.minimizeApp();
     });
     return () => { void listener.then(h => h.remove()); };
   });
   function shortcut(e: KeyboardEvent) { if (e.key === '/' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement) && !document.querySelector('dialog[open]')) { e.preventDefault(); search?.focus(); } }
-  function fromLink() { const id = new URLSearchParams(location.search).get('note'); if (id) void readPublic(id); }
-  function closeReader() { reader = null; if (location.search) history.replaceState(null, '', location.pathname); }
-  function navigate(next: View) { view = next; query = ''; if (window.innerWidth <= 900) sidebar = false; }
+  function fromLink() {
+    const params = new URLSearchParams(location.search), next = params.get('view') as View;
+    readSequence++;
+    view = next && (sections.some(s => s.view === next) || next.startsWith('label:')) ? next : session ? 'feed' : 'notes';
+    targetProfile = params.get('profile') || '';
+    const id = params.get('note');
+    if (id) void readPublic(id, false); else reader = null;
+  }
+  function closeReader() {
+    readSequence++; reader = null; socialRevision++;
+    const url = new URL(location.href); url.searchParams.delete('note'); history.replaceState(null, '', url);
+  }
+  async function navigate(next: View, profile = '') {
+    readSequence++;
+    scrollPositions.set(`${view}:${targetProfile}`, window.scrollY);
+    view = next; targetProfile = profile; query = ''; reader = null;
+    if (window.innerWidth <= 900) sidebar = false;
+    const url = new URL(location.href); url.search = ''; url.searchParams.set('view', next);
+    if (profile) url.searchParams.set('profile', profile);
+    history.pushState(null, '', url);
+    restoreScroll = scrollPositions.get(`${next}:${profile}`) || 0;
+    await tick(); window.scrollTo(0, restoreScroll);
+  }
+  function openProfile(id: string) { void navigate('profile', id); }
+  async function socialReady() { await tick(); if (restoreScroll !== null) { window.scrollTo(0, restoreScroll); restoreScroll = null; } }
   function create(kind: Kind = 'text') { const note = newNote(scope, kind); if (view.startsWith('label:')) note.body.labels = [view.slice(6)]; editor = note; }
   async function save(note: LocalNote, body: NoteBody) { if (hasContent(body) || notes.some(n => n.id === note.id)) await persist(note, body); }
   async function update(note: LocalNote, patch: Partial<NoteBody>) {
@@ -94,23 +117,22 @@
     try { editor = await db.notes.get([note.scope, note.id]) || note; }
     catch { release(); notify('메모 저장소를 열 수 없습니다.'); }
   }
-  async function loadFeed() {
-    feedLoading = true;
-    try { feed = await request<Note[]>('/public'); feedError = ''; }
-    catch { feed = []; feedError = '공개 메모를 불러오지 못했어요. 서버 연결을 확인해 주세요.'; }
-    finally { feedLoading = false; }
-  }
-  async function readPublic(id: string) {
-    try { reader = await request<Note>(`/public/${id}`); }
-    catch { reader = null; feed = feed.filter(n => n.id !== id); notify('더 이상 공개되지 않은 메모입니다.'); }
+  async function readPublic(id: string, push = true) {
+    const current = session, ticket = ++readSequence;
+    try {
+      const result = await request<Post>(`/social/notes/${id}`, current);
+      if (session?.token !== current?.token || ticket !== readSequence) return;
+      reader = result.note;
+      if (push) { const url = new URL(location.href); url.searchParams.set('note', id); history.pushState(null, '', url); }
+    } catch (e) { if (ticket === readSequence) { reader = null; notify(errorMessage(e)); } }
   }
   async function fork(note: Note) {
-    try { const current = await request<Note>(`/public/${note.id}`), next = newNote(scope); next.body = { ...current.body, pinned: false, archived: false, trashed: false, sourceId: current.id }; await persist(next, next.body); reader = null; navigate('notes'); editor = next; notify('내 비공개 메모로 복사했어요. 생각을 이어 써 보세요.'); }
+    try { const current = await request<Note>(`/public/${note.id}`, session), next = newNote(scope); next.body = { ...current.body, pinned: false, archived: false, trashed: false, sourceId: current.id }; await persist(next, next.body); reader = null; navigate('notes'); editor = next; notify('내 비공개 메모로 복사했어요. 생각을 이어 써 보세요.'); }
     catch (e) { notify(errorMessage(e)); }
   }
   async function setVisibility(note: LocalNote, visibility: Visibility) {
     if (!session) throw new Error('먼저 로그인해 주세요.');
-    await changeVisibility(note, visibility, session);
+    await changeVisibility(note, visibility, session); socialRevision++;
     notify(visibility === 'public' ? '이 메모를 함께 볼 수 있어요.' : '이제 나만 볼 수 있어요.');
   }
   async function connect(next: Session, bring: boolean) {
@@ -120,7 +142,7 @@
   }
   async function logout() {
     await account.logout();
-    view = 'notes'; accountOpen = false;
+    view = 'notes'; accountOpen = false; reader = null; targetProfile = ''; unread = 0;
   }
   function exportNotes() {
     const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), notes: notes.map(({ body, visibility, updatedAt, id }) => ({ id, body, visibility, updatedAt })) }, null, 2)], { type: 'application/json' });
@@ -132,7 +154,7 @@
 
 {#snippet nav(items: typeof sections)}
   {#each items as item}
-    <button class:selected={view === item.view} onclick={() => navigate(item.view)} title={item.label}><item.icon size={22}/><span>{item.label}</span>{#if item.view === 'explore'}<span class="nav-new">함께</span>{/if}</button>
+    <button class:selected={view === item.view} onclick={() => navigate(item.view)} title={item.label}><item.icon size={22}/><span>{item.label}</span>{#if item.view === 'notifications' && unread}<span class="nav-new">{unread > 99 ? '99+' : unread}</span>{/if}</button>
   {/each}
 {/snippet}
 {#snippet cards(items: LocalNote[])}
@@ -141,8 +163,8 @@
 
 <div class="app" class:sidebar-open={sidebar} class:sidebar-closed={!sidebar}>
   <header class="topbar">
-    <div class="brand-area"><IconButton label="메뉴" icon={Menu} size={23} onclick={() => sidebar = !sidebar}/><a href="/" class="brand" aria-label="Notizfaden" onclick={e => { e.preventDefault(); navigate('notes'); }}><img class="brand-icon" src="/icon.svg" alt=""/><span class="brand-name">Notizfaden</span></a></div>
-    <div class="search"><Search size={21}/><input bind:this={search} type="search" aria-label="메모 검색" placeholder={view === 'explore' ? '공개 메모에서 검색' : '메모 검색'} bind:value={query}/>{#if query}<IconButton label="검색 지우기" icon={X} size={18} onclick={() => query = ''}/>{:else}<kbd>/</kbd>{/if}</div>
+    <div class="brand-area"><IconButton label="메뉴" icon={Menu} size={23} onclick={() => sidebar = !sidebar}/><a href="/" class="brand" aria-label="Notizfaden" onclick={e => { e.preventDefault(); navigate(session ? 'feed' : 'notes'); }}><img class="brand-icon" src="/icon.svg" alt=""/><span class="brand-name">Notizfaden</span></a></div>
+    <div class="search"><Search size={21}/><input bind:this={search} type="search" aria-label="메모 검색" placeholder={isSocial ? '사람과 공개 메모 검색' : '메모 검색'} bind:value={query}/>{#if query}<IconButton label="검색 지우기" icon={X} size={18} onclick={() => query = ''}/>{:else}<kbd>/</kbd>{/if}</div>
     <div class="top-actions">
       <button class="sync-status" onclick={() => synchronizer.run()} title={synchronizer.error || synchronizer.status} disabled={synchronizer.syncing || !!editor}>{#if synchronizer.syncing}<RefreshCw size={17} class="spin"/>{:else if synchronizer.error}<CloudOff size={18}/>{:else}<Cloud size={18}/>{/if}<span>{synchronizer.status}</span></button>
       <IconButton label={list ? '카드 보기' : '목록 보기'} icon={list ? LayoutGrid : Rows3} size={22} onclick={() => list = !list}/>
@@ -152,21 +174,20 @@
   </header>
   {#if sidebar}<button class="drawer-shade" aria-label="메뉴 닫기" onclick={() => sidebar = false}></button>{/if}
   <aside class="sidebar"><nav aria-label="메모 탐색">
-    {@render nav(sections.slice(0, 2))}<div class="nav-divider"></div><div class="nav-caption">라벨</div>
+    {@render nav(sections.slice(0, 5))}<div class="nav-divider"></div><div class="nav-caption">라벨</div>
     {#each labels as label}<button class:selected={view === `label:${label}`} onclick={() => navigate(`label:${label}`)} title={label}><Tag size={20}/><span>{label}</span></button>{/each}
-    <div class="nav-divider"></div>{@render nav(sections.slice(2))}
+    <div class="nav-divider"></div>{@render nav(sections.slice(5))}
   </nav><div class="sidebar-footer"><span class="footer-mark">Notizfaden</span><p>나를 위해 적고,<br/>가끔은 함께.</p><button onclick={exportNotes}><Download size={14}/> 메모 내보내기</button></div></aside>
   <main>
     {#if $notebook.error || initError}<div class="banner error" role="alert">{$notebook.error || initError}</div>{/if}
     {#if synchronizer.error}<div class="banner" role="status"><CloudOff size={16}/>{synchronizer.error}<button onclick={() => synchronizer.run()}>다시 연결</button></div>{/if}
-    <div class="workspace-head"><h1>{title}</h1><span>{view === 'explore' ? '누군가의 작은 생각이, 나의 다음 생각으로.' : view === 'trash' ? '잠시 내려놓은 메모. 언제든 복원할 수 있어요.' : view === 'archive' ? '지금은 꺼내두지 않아도 되는 생각들.' : '떠오른 생각을 가볍게 남겨보세요.'}</span>{#if view === 'explore'}<IconButton label="공개 메모 새로고침" icon={RefreshCw} size={18} spin={feedLoading} disabled={feedLoading} onclick={loadFeed}/>{/if}</div>
-    {#if view !== 'explore' && view !== 'trash' && view !== 'archive' && !query}<div class="composer"><button class="composer-input" onclick={() => create()}>메모 작성…</button><IconButton label="새 체크리스트" icon={CheckSquare} size={23} onclick={() => create('checklist')}/><IconButton label="새 메모" icon={Plus} size={24} onclick={() => create()}/></div>{/if}
+    <div class="workspace-head"><h1>{title}</h1><span>{isSocial ? '작은 메모에서 시작되는 우리 이야기.' : view === 'trash' ? '잠시 내려놓은 메모. 언제든 복원할 수 있어요.' : view === 'archive' ? '지금은 꺼내두지 않아도 되는 생각들.' : '떠오른 생각을 가볍게 남겨보세요.'}</span></div>
+    {#if (!isSocial || view === 'feed') && view !== 'trash' && view !== 'archive' && !query}<div class="composer"><button class="composer-input" onclick={() => create()}>메모 작성…</button><IconButton label="새 체크리스트" icon={CheckSquare} size={23} onclick={() => create('checklist')}/><IconButton label="새 메모" icon={Plus} size={24} onclick={() => create()}/></div>{/if}
     {#if query}<p class="results">“{query}” 검색 결과</p>{/if}
-    {#if view === 'explore'}
-      {#if feedError}<div class="empty"><CloudOff size={48}/><h2>잠깐, 연결이 필요해요</h2><p>{feedError}</p><button class="text-button" onclick={loadFeed}>다시 시도</button></div>
-      {:else if publicNotes.length}<div class="notes-grid" class:list>{#each publicNotes as note (note.id)}<NoteCard {note} own={false} onOpen={() => readPublic(note.id)} onFork={() => fork(note)} onTag={label => query = label}/>{/each}</div>
-      {:else}<div class="empty"><Compass size={52}/><h2>{feedLoading ? '생각을 불러오고 있어요' : '첫 번째 생각을 기다리는 중'}</h2><p>메모의 공개 범위를 ‘전체 공개’로 바꾸면<br/>이곳에서 함께 볼 수 있어요.</p><button class="text-button" onclick={() => session ? navigate('notes') : authOpen = true}>{session ? '내 메모로 가기' : '계정 연결하기'}<ArrowRight size={16}/></button></div>{/if}
+    {#if isSocial}
+      <SocialView view={view as 'feed' | 'explore' | 'profile' | 'notifications'} profileId={targetProfile || session?.user.id || ''} {session} {query} {list} revision={socialRevision} onRead={readPublic} onProfile={openProfile} onLogin={() => authOpen = true} onUnread={value => unread = value} onReady={socialReady}/>
     {:else}
+      {#if view === 'notes'}<div class="note-filters" aria-label="메모 공개 상태">{#each [{value: 'all', label: '전체'}, {value: 'private', label: '비공개'}, {value: 'public', label: '공개'}] as filter}<button class:selected={visibilityFilter === filter.value} onclick={() => visibilityFilter = filter.value as typeof visibilityFilter}>{filter.label}</button>{/each}</div>{/if}
       {#each notes.filter(n => n.syncError) as note (note.id)}<div class="banner"><AlertCircle size={18}/><span>‘{note.body.title || '메모'}’ 동기화: {note.syncError}</span><button onclick={() => note.body.sourceId ? update(note, { sourceId: null }) : open(note)}>{note.body.sourceId ? '출처 없이 저장' : '메모 수정'}</button></div>{/each}
       {#if notes.some(n => n.conflict)}<div class="conflicts">{#each notes.filter(n => n.conflict) as note (note.id)}<div><AlertCircle size={18}/><span>‘{note.body.title || '메모'}’에 다른 기기의 수정이 있어요. 두 내용을 모두 보관할 수 있습니다.</span><button onclick={() => preserveConflict(note).then(() => notify('내 수정본은 새 비공개 메모로 보관했어요.')).catch(() => notify('저장에 실패했어요. 다시 시도해 주세요.'))}>두 버전 보관</button></div>{/each}</div>{/if}
       {#if !visible.length}
@@ -178,9 +199,10 @@
     {/if}
     {#if view === 'notes' && !query && visible.length}<div class="workspace-foot"><LockKeyhole size={12}/><span>메모는 기본적으로 나만 볼 수 있어요.</span></div>{/if}
   </main>
+  <nav class="bottom-nav" aria-label="주요 화면">{#each sections.slice(0, 5) as item}<button class:selected={view === item.view} onclick={() => navigate(item.view)}><item.icon size={21}/><span>{item.label}</span>{#if item.view === 'notifications' && unread}<b>{unread > 99 ? '99+' : unread}</b>{/if}</button>{/each}</nav>
   <button class="mobile-create" aria-label="새 메모" onclick={() => create()}><Plus size={28}/></button>
   {#if editorCurrent}{#key editorCurrent.id}<Editor note={editorCurrent} onClose={() => editor = null} onSave={save} onVisibility={setVisibility} {session} onSource={readPublic}/>{/key}{/if}
-  {#if reader}<PublicReader note={reader} onClose={closeReader} onFork={() => reader && fork(reader)}/>{/if}
+  {#if reader}<PublicReader note={reader} {session} onClose={closeReader} onFork={() => reader && fork(reader)} onProfile={openProfile} onLogin={() => authOpen = true} onChanged={() => socialRevision++}/>{/if}
   {#if authOpen}<AuthDialog onClose={() => authOpen = false} onSession={connect}/>{/if}
   {#if accountOpen && session}<Modal label="내 계정" onClose={() => accountOpen = false} class="account-dialog">
     <div class="dialog-heading"><span class="avatar">{session.user.name[0].toUpperCase()}</span><IconButton label="닫기" icon={X} onclick={() => accountOpen = false}/></div>
@@ -192,6 +214,11 @@
 </div>
 
 <style>
+  .bottom-nav { display:none; }
+  .note-filters { display:flex; gap:7px; margin:-12px 0 24px; }
+  .note-filters button { padding:9px 20px; border-radius:20px; font-size:12px; min-height:40px; color:var(--muted); }
+  .note-filters .selected { background:var(--selected); color:var(--fg); }
+
   .topbar {
     height: calc(var(--app-header-height) + var(--app-safe-top));
     display: flex;
@@ -528,10 +555,6 @@
     line-height: 1.8;
   }
 
-  .empty button {
-    margin-top: 12px;
-  }
-
   .mobile-create {
     display: none;
   }
@@ -716,6 +739,11 @@
   }
 
   @media (max-width: 600px) {
+    .bottom-nav { display:flex; position:fixed; bottom:0; left:0; right:0; padding:7px var(--app-safe-right) calc(7px + var(--app-safe-bottom)) var(--app-safe-left); background:var(--bg); border-top:1px solid var(--line); z-index:13; }
+    .bottom-nav button { flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; min-height:48px; color:var(--muted); position:relative; font-size:10px; }
+    .bottom-nav button.selected { color:var(--fg); background:var(--selected); border-radius:16px; }
+    .bottom-nav b { position:absolute; top:0; right:16%; background:#b24c57; color:white; font-size:9px; border-radius:9px; padding:2px 5px; }
+
     .topbar {
       padding: var(--app-safe-top) calc(10px + var(--app-safe-right)) 0 calc(10px + var(--app-safe-left));
       gap: 7px;
@@ -773,7 +801,7 @@
 
     main,
     .sidebar-closed main {
-      padding: calc(89px + var(--app-safe-top)) calc(14px + var(--app-safe-right)) calc(100px + var(--app-safe-bottom)) calc(14px + var(--app-safe-left));
+      padding: calc(89px + var(--app-safe-top)) calc(14px + var(--app-safe-right)) calc(160px + var(--app-safe-bottom)) calc(14px + var(--app-safe-left));
     }
 
     .workspace-head {
@@ -819,7 +847,7 @@
       justify-content: center;
       position: fixed;
       right: calc(24px + var(--app-safe-right));
-      bottom: calc(24px + var(--app-safe-bottom));
+      bottom: calc(90px + var(--app-safe-bottom));
       width: 56px;
       height: 56px;
       border-radius: 17px;
@@ -835,7 +863,7 @@
     }
 
     .toast {
-      bottom: calc(90px + var(--app-safe-bottom));
+      bottom: calc(155px + var(--app-safe-bottom));
       font-size: 12px;
     }
 

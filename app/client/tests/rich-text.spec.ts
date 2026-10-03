@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Korean composition in the middle of text survives autosave and reopening', async ({ page, context }) => {
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 제목' }).fill('한글 조합 검증');
   const content = page.getByRole('textbox', { name: '메모 내용' });
@@ -24,7 +24,7 @@ test('Korean composition in the middle of text survives autosave and reopening',
 });
 
 test('format selection, undo/redo, headings, persistence, search and safe checklist conversion', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 제목' }).fill('서식 검증');
   const content = page.getByRole('textbox', { name: '메모 내용' });
@@ -68,7 +68,7 @@ test('format selection, undo/redo, headings, persistence, search and safe checkl
 
 test('clear formatting, safe pasted HTML, legacy text and mobile toolbar', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '어두운 테마', exact: true }).click();
   await page.getByRole('button', { name: '메모는 이렇게 써요 열기', exact: true }).click();
   const content = page.getByRole('textbox', { name: '메모 내용' });
@@ -103,7 +103,7 @@ test('rich text survives API sync, public reader and fork', async ({ page, reque
   expect(registration.ok()).toBe(true);
   const session = await registration.json();
   await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 제목' }).fill('공개 서식');
   const content = page.getByRole('textbox', { name: '메모 내용' });
@@ -137,7 +137,7 @@ test('an old server response cannot erase local formatting and a retry can recov
   const registration = await request.post('/api/auth/register', { data: { username: 'legacy_' + Date.now(), password: 'rich-text-test-password' } });
   const session = await registration.json();
   await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.route('**/api/notes/*', async route => {
     if (route.request().method() !== 'PUT') return route.continue();
     const response = await route.fetch();

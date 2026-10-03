@@ -70,6 +70,7 @@
   <div class="editor" style={noteStyle(body.color)}>
     <div class="editor-mobile-head"><IconButton label="메모 닫기" icon={ArrowLeft} onclick={close}/><span>{saving ? '저장 중…' : '기기에 저장됨'}</span></div>
     <div class="editor-content">
+      {#if note.visibility === 'public'}<p class="public-edit-hint">전체 공개 · 수정한 내용도 다른 사람에게 보여요.</p>{/if}
       <div class="editor-title">
         <input aria-label="메모 제목" placeholder="제목" maxlength={300} bind:value={body.title}/>
         <IconButton label={body.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={21} active={body.pinned} fill={body.pinned ? 'currentColor' : 'none'} onclick={() => body.pinned = !body.pinned}/>
@@ -121,6 +122,7 @@
 </Modal>
 
 <style>
+  .public-edit-hint { font-size:11px; color:var(--muted); padding:0 0 12px; }
   :global([data-theme=dark]) .editor {
     background: var(--card-dark);
     color: var(--fg);

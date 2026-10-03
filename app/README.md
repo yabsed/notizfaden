@@ -1,6 +1,6 @@
 # Notizfaden
 
-나를 위해 적고, 가끔은 함께. 빠른 입력과 카드형 메모를 기반으로 만든 개인 메모 + 선택적 공유 앱입니다.
+나를 위해 적고, 가끔은 함께. 빠른 입력과 Keep 스타일의 카드형 메모를 기반으로 만든 메모 SNS입니다.
 
 프런트엔드는 Svelte 5 + TypeScript + Vite, 서버는 Haskell + Servant + PostgreSQL입니다.
 
@@ -51,7 +51,12 @@ sudo dnf install gcc gcc-c++ make gmp-devel ncurses-devel libpq-devel postgresql
 - 체크리스트, 색상, 고정, 라벨, 검색, 보관함, 휴지통과 복원, JSON 내보내기.
 - 계정 없이 시작: IndexedDB/Dexie에 저장. 초기 안내 메모 8개도 수정/삭제 가능합니다.
 - 계정 생성/로그인, 계정별 기기 저장소, PostgreSQL 영속 저장, 15초 간격 및 앱 포커스/재접속 동기화.
-- Private/Public 전환, 최신 공개 메모 100개 둘러보기, 공개 링크, 내 비공개 메모로 이어 쓰기.
+- 하나의 메모에서 Private/Public 전환, 공개 링크, 내 비공개 메모로 이어 쓰기. 공개 후에도 같은 메모를 편집하며 좋아요·답글과 최초 공개 시각을 유지합니다.
+- Keep 색상과 카드/목록 보기를 유지한 전체·팔로잉 피드, 사람·공개 메모 검색, 프로필의 공개 메모 모음. 피드·답글·알림은 30개 단위 커서로 더 읽을 수 있습니다.
+- 표시 이름·소개·이모지 아바타, 팔로우/해제, 팔로워·팔로잉 목록, 좋아요/취소, 답글 작성·삭제. 같은 좋아요·답글 요청의 재시도는 중복 생성하지 않습니다.
+- 팔로우·좋아요·답글의 앱 내 알림, 읽음 상태와 배지. 배지는 30초마다 갱신되며 운영체제 푸시 알림은 아닙니다.
+- 차단·뮤트·신고, 관리자 신고 검토함. 차단은 양방향 메모 접근과 상호작용을 막고 기존 팔로우도 해제합니다. 뮤트는 피드·답글·알림에서 숨기며 직접 공개 링크는 열 수 있습니다.
+- 내 메모의 전체/비공개/공개 필터, 모바일 하단 탐색, 피드 당겨서 새로고침. 개인 라벨·고정·보관 상태·복사 출처는 공개 응답에서 제외합니다.
 - 서버가 공개 범위 변경을 승인해야 UI가 완료로 표시합니다. 일반 본문 저장 요청은 공개 범위를 바꾸지 않습니다.
 - revision 충돌 시 양쪽 버전을 보존할 수 있으며, mutation ID로 동일 요청 재시도를 중복 적용하지 않습니다.
 - 프로덕션 웹 빌드는 서비스 워커로 앱 자산을 미리 캐시합니다. 개인 메모는 IndexedDB에서 읽고 공개 API 응답은 캐시하지 않습니다.
@@ -93,13 +98,15 @@ npm run build
 npm --workspace client run preview  # 별도 터미널, :5174
 npm test
 python3 server/test/api.py
+python3 server/test/social.py
+python3 server/test/migration.py  # 별도 임시 DB를 만들고 제거
 ```
 
 브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API 검사는 임의의 테스트 계정을 만들고 공개 상태를 마지막에 해제/휴지통 처리합니다. 서버 검사 주소는 `NOTIZFADEN_TEST_API`로 바꿀 수 있습니다.
 
 `npm run check`는 Svelte 컴포넌트와 TypeScript를 검사합니다. `npm run build`에도 이 검사가 포함됩니다.
 
-별도 포트로 검증할 때는 Vite의 `NOTIZFADEN_API_PROXY`, Playwright의 `NOTIZFADEN_TEST_URL`과 `NOTIZFADEN_PREVIEW_URL`을 지정할 수 있습니다. API의 `ALLOWED_ORIGINS`에도 해당 웹 주소를 추가하세요. 서식 입력·복원·단축키·붙여넣기·모바일 배치·공개 메모 복사는 `tests/rich-text.spec.ts`, 오프라인 서식 보존은 `tests/offline.spec.ts`에서 검사합니다. 실제 Android 한글 키보드의 조합 입력은 기기에서 추가 확인이 필요합니다.
+별도 포트로 검증할 때는 Vite의 `NOTIZFADEN_API_PROXY`, Playwright의 `NOTIZFADEN_TEST_URL`과 `NOTIZFADEN_PREVIEW_URL`을 지정할 수 있습니다. API의 `ALLOWED_ORIGINS`에도 해당 웹 주소를 추가하세요. 새 SNS 흐름은 `tests/social.spec.ts`에서 두 계정과 모바일 화면으로 확인합니다. `server/test/social.py`는 권한·공개 취소·차단·뮤트·동시 요청·페이지네이션을 검사합니다. 관리자 경로까지 검사하려면 **격리된 테스트 DB**의 서버를 `NOTIZFADEN_ADMIN_USERNAME=social_admin`으로 띄우고 검사에 `NOTIZFADEN_TEST_ADMIN=1`을 지정하세요. 서식 입력·복원·단축키·붙여넣기·모바일 배치·공개 메모 복사는 `tests/rich-text.spec.ts`, 오프라인 서식 보존은 `tests/offline.spec.ts`에서 검사합니다. 실제 Android 한글 키보드의 조합 입력은 기기에서 추가 확인이 필요합니다.
 
 ## 본문 서식과 호환성
 
@@ -120,7 +127,8 @@ Tiptap 소스는 `submodules/tiptap`에 보관하며, 앱은 해당 스냅샷의
 - `client/src/style.css`: 전역 테마, 기본 요소와 공유 스타일. googlekeepclone의 테마 색상, 카드/입력창 치수, 서랍과 폰트 자산을 사용했습니다. 원본 MIT 라이선스는 `THIRD_PARTY_LICENSES.txt`, 폰트 라이선스는 `client/public/fonts`에 있습니다.
 - `server/src/Main.hs`: 서버 설정, 시작과 Servant 라우트 연결.
 - `server/src/Model.hs`: 요청/응답 타입, JSON과 DB 행 변환, 공통 API 오류 응답.
-- `server/src/Database.hs`: DB 연결과 트랜잭션 실행 기반, 스키마 초기화.
+- `server/src/Database.hs`: 4개 연결 풀, 트랜잭션, 버전별 스키마 마이그레이션. 서버 시작 시 잠금을 잡고 한 번씩 적용하며 기존 사용자·메모·세션·revision은 유지합니다.
+- `server/src/Social.hs`, `client/src/social.ts`, `SocialView.svelte`, `SocialCard.svelte`, `Person.svelte`: 소셜 API와 화면. 별도 게시물 테이블 없이 공개 메모의 ID에 관계·반응·답글을 연결합니다.
 - `server/src/Auth.hs`: 계정 생성/로그인, 암호 해시, 서버 세션과 인증.
 - `server/src/Notes.hs`: 메모 조회/저장/공개, 권한 검사와 충돌 처리. 본문 저장과 공개 변경은 동일한 트랜잭션 규칙을 사용합니다.
 - `server/src/RichText.hs`: 버전이 있는 서식 문서의 허용 노드·속성·길이 검증과 일반 텍스트 추출.
@@ -128,7 +136,11 @@ Tiptap 소스는 `submodules/tiptap`에 보관하며, 앱은 해당 스냅샷의
 
 비밀번호는 PBKDF2-HMAC-SHA256 600,000회로 저장하고, 서버에는 30일 세션 토큰의 SHA256 해시만 보관합니다. 클라이언트 토큰은 해당 기기의 localStorage에 있습니다. Private는 사용자 간 접근 제한이며 종단 간 암호화는 아닙니다.
 
-첫 버전의 범위: 텍스트와 체크리스트, Private/Public 공유입니다. 친구 관계, 이미지 첨부, 댓글, 위젯, 비밀번호 복구, 공개 서비스 운영용 차단/신고/요청 제한은 아직 없습니다. 동기화는 개인 메모 전체 목록을 가져오는 방식이므로 큰 규모에는 커서/페이지네이션이 필요합니다. 휴지통 메모는 자동/영구 삭제하지 않습니다. 이미 복사된 공개 메모는 원본 공개 취소로 회수되지 않으며, 원본 열람은 서버가 다시 권한을 확인합니다.
+현재 범위는 텍스트·체크리스트 기반 메모 SNS입니다. 이미지 첨부·업로드형 아바타, 중첩 답글, 운영체제 푸시 알림, Bluesky 계정/AT Protocol 연동, 위젯, 비밀번호 복구, 요청 속도 제한은 아직 없습니다. 사람 검색은 최대 40명, 팔로워·팔로잉 목록은 최대 100명을 표시합니다. 동기화는 개인 메모 전체 목록을 가져오는 방식이므로 큰 규모에는 커서/페이지네이션이 필요합니다. 휴지통 메모는 자동/영구 삭제하지 않습니다. 이미 복사된 공개 메모는 원본 공개 취소로 회수되지 않으며, 원본 열람은 서버가 다시 권한을 확인합니다.
+
+관리자 신고함은 서버 환경변수 `NOTIZFADEN_ADMIN_USERNAME`에 **이미 생성한 계정의 정확한 아이디**를 지정하고 서버를 재시작하면 해당 계정의 프로필에서 열 수 있습니다. 미설정 시 모든 계정의 관리자 API 접근을 거부합니다. 신고 대상/사유를 열람하고 검토 완료·다시 열기를 제공하며, 강제 계정 정지·글 삭제 기능은 포함하지 않습니다.
+
+SNS 변경을 반영할 때는 API 서버를 재시작한 다음 웹을 새로고침하거나 새 APK를 설치하세요. 로그인 정보·Android 패키지 ID·개인 메모 저장소는 그대로 사용합니다. 공개 취소/휴지통 이동 시 기존 좋아요·답글을 DB에 보관하면서 열람과 알림 노출을 막습니다. 다시 공개하면 같은 대화를 이어갈 수 있습니다. 차단은 로그인한 계정 사이의 접근 제어이며 공개 글을 비로그인 방문자에게 숨기는 기능은 아닙니다.
 
 이 컴퓨터에서 웹 빌드를 유지하면서 Android 테스트 APK를 만드는 단축 명령:
 

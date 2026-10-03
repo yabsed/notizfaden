@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 module Model
   ( Visibility(..), Item(..), NoteBody(..), Save(..), Sharing(..)
-  , Credentials(..), User(..), Note(..), err
+  , Credentials(..), User(..), Note(..), publicNote, err
   ) where
 
 import Data.Aeson
@@ -51,6 +51,10 @@ instance ToJSON User where toJSON = genericToJSON opts
 instance FromRow User where fromRow = User <$> field <*> field
 
 data Note = Note Text Text Int Visibility NoteBody UTCTime Text
+-- Personal organization metadata is never part of a shared note.
+publicNote :: Note -> Note
+publicNote (Note ident owner rev visibility body updated name) =
+  Note ident owner rev visibility (body {nLabels=[], nPinned=False, nArchived=False, nSourceId=Nothing}) updated name
 instance ToJSON Note where
   toJSON (Note ident owner rev visibility body updated name) = object
     ["id" .= ident, "author" .= User owner name, "revision" .= rev,

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('local notes: autosave, labels, search, checklist, archive, trash and restore', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await expect(page.getByTestId('note-card')).toHaveCount(8);
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 제목' }).fill('브라우저 검증 메모');
@@ -43,7 +43,7 @@ test('local notes: autosave, labels, search, checklist, archive, trash and resto
 
 test('mobile layout and dark theme preserve local data', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await expect(page.getByTestId('note-card')).toHaveCount(8);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.getByRole('button', { name: '어두운 테마', exact: true }).click();
@@ -58,7 +58,7 @@ test('mobile layout and dark theme preserve local data', async ({ page }) => {
 test('account, two devices, public feed, fork and unpublish use the Haskell API', async ({ page, browser }) => {
   const username = 'ui_' + Date.now();
   const password = 'teum-browser-test-2026';
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '로그인', exact: true }).click();
   await page.getByRole('button', { name: '처음 오셨나요? 계정 만들기' }).click();
   await page.getByRole('textbox', { name: '아이디', exact: true }).fill(username);
@@ -72,7 +72,7 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await expect(page.locator('.sync-status')).toHaveText('동기화됨');
   const device = await browser.newContext();
   const second = await device.newPage();
-  await second.goto('/');
+  await second.goto('/?view=notes');
   await second.getByRole('button', { name: '로그인', exact: true }).click();
   await second.getByRole('textbox', { name: '아이디', exact: true }).fill(username);
   await second.getByLabel('비밀번호', { exact: true }).fill(password);
@@ -97,19 +97,20 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   const visitorContext = await browser.newContext();
   const visitor = await visitorContext.newPage();
-  await visitor.goto('/');
-  await visitor.getByRole('button', { name: /둘러보기/ }).click();
-  const shared = visitor.getByTestId('note-card').filter({ hasText: '두 기기에서 이어지는 생각' });
+  await visitor.goto('/?view=notes');
+  await visitor.getByRole('button', { name: '탐색', exact: true }).click();
+  const shared = visitor.getByTestId('social-card').filter({ hasText: '두 기기에서 이어지는 생각' });
   await expect(shared).toBeVisible();
-  await shared.getByRole('button', { name: '내 메모로 이어 쓰기', exact: true }).click();
+  await shared.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
+  await visitor.getByRole('button', { name: '내 메모로 이어 쓰기', exact: true }).click();
   await expect(visitor.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
   await visitor.getByRole('button', { name: '닫기', exact: true }).click();
   await page.getByRole('button', { name: '두 기기에서 이어지는 생각 열기', exact: true }).click();
   await page.getByRole('combobox', { name: '공개 범위' }).selectOption('private');
   await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('private');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
-  await visitor.getByRole('button', { name: /둘러보기/ }).click();
-  await expect(visitor.getByTestId('note-card').filter({ hasText: '두 기기에서 이어지는 생각' })).toHaveCount(0);
+  await visitor.getByRole('button', { name: '탐색', exact: true }).click();
+  await expect(visitor.getByTestId('social-card').filter({ hasText: '두 기기에서 이어지는 생각' })).toHaveCount(0);
   // Changing the store's account scope must remove the previous account's notes.
   await page.getByRole('button', { name: '계정', exact: true }).click();
   await page.getByRole('button', { name: '로그아웃', exact: true }).click();
@@ -122,7 +123,7 @@ test('offline simultaneous edits keep both versions after reconnect', async ({ p
   const response = await request.post('/api/auth/register', { data: { username: 'conflict_' + Date.now(), password: 'teum-conflict-password' } });
   const session = await response.json();
   await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
-  await page.goto('/');
+  await page.goto('/?view=notes');
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 제목' }).fill('동시 수정');
   await page.getByRole('textbox', { name: '메모 내용' }).fill('원래 내용');
@@ -130,7 +131,7 @@ test('offline simultaneous edits keep both versions after reconnect', async ({ p
   await expect(page.locator('.sync-status')).toHaveText('동기화됨');
   const device = await browser.newContext();
   await device.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
-  const offline = await device.newPage(); await offline.goto('/');
+  const offline = await device.newPage(); await offline.goto('/?view=notes');
   await expect(offline.getByText('원래 내용', { exact: true })).toBeVisible();
   await device.setOffline(true);
   await offline.getByRole('button', { name: '동시 수정 열기', exact: true }).click();
@@ -157,9 +158,9 @@ test('login and logout in another tab close dialogs and switch account storage',
   });
   expect(registration.ok()).toBeTruthy();
 
-  await page.goto('/');
+  await page.goto('/?view=notes');
   const second = await context.newPage();
-  await second.goto('/');
+  await second.goto('/?view=notes');
   await expect(second.getByTestId('note-card')).toHaveCount(8);
   await second.getByRole('button', { name: 'Notizfaden에 오신 걸 환영해요 열기', exact: true }).click();
   await expect(second.getByRole('dialog', { name: '메모 편집', exact: true })).toBeVisible();
