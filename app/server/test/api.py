@@ -62,6 +62,41 @@ latest = next(n for n in call('/notes', token=at) if n['id'] == id1)
 shared = call('/notes/' + id1 + '/visibility', 'PATCH', {'baseRevision': latest['revision'], 'mutationId': ident(), 'visibility': 'public'}, at)
 call('/notes/' + id1, 'PUT', save(id1, {**shared['body'], 'trashed': True}, shared['revision']), at)
 call('/public/' + id1, expected=404)
+rich_id = ident()
+rich = {'version': 1, 'doc': {'type': 'doc', 'content': [
+    {'type': 'heading', 'attrs': {'level': 2}, 'content': [{'type': 'text', 'text': '서식 제목', 'marks': [{'type': 'bold'}, {'type': 'underline'}]}]},
+    {'type': 'paragraph', 'content': [{'type': 'text', 'text': '첫 줄'}, {'type': 'hardBreak'}, {'type': 'text', 'text': '<b>문자열</b>', 'marks': [{'type': 'italic'}]}]},
+    {'type': 'paragraph'}]}}
+rich_body = {**body, 'content': '서식 제목\n첫 줄\n<b>문자열</b>\n', 'richText': rich}
+saved = call('/notes/' + rich_id, 'PUT', {**save(rich_id, rich_body), 'bodyFormat': 2}, at)
+assert saved['body']['richText'] == rich
+assert next(n for n in call('/notes', token=at) if n['id'] == rich_id)['body'] == saved['body']
+# Legacy metadata writes preserve formatting. Legacy content writes cannot strip it.
+legacy = {k: v for k, v in rich_body.items() if k != 'richText'}
+saved = call('/notes/' + rich_id, 'PUT', save(rich_id, {**legacy, 'pinned': True}, saved['revision']), at)
+assert saved['body']['richText'] == rich and saved['body']['pinned']
+call('/notes/' + rich_id, 'PUT', save(rich_id, {**legacy, 'content': 'old client edit'}, saved['revision']), at, expected=400)
+# Only the supported schema is accepted; text must agree with the document.
+for invalid in [
+    {**rich_body, 'content': 'mismatched plain text'},
+    {**rich_body, 'kind': 'checklist'},
+    {**rich_body, 'richText': {**rich, 'version': 2}},
+    {**rich_body, 'richText': {'version': 1, 'doc': {'type': 'doc', 'content': [{'type': 'image', 'attrs': {'src': 'javascript:alert(1)'}}]}}},
+    {**rich_body, 'richText': {'version': 1, 'doc': {'type': 'doc', 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'x', 'marks': [{'type': 'link', 'attrs': {'href': 'javascript:alert(1)'}}]}]}]}}},
+    {**rich_body, 'richText': {'version': 1, 'doc': {'type': 'doc', 'content': [{'type': 'heading', 'attrs': {'level': 3}}]}}},
+]:
+    call('/notes/' + rich_id, 'PUT', {**save(rich_id, invalid, saved['revision']), 'bodyFormat': 2}, at, expected=400)
+shared_rich = call('/notes/' + rich_id + '/visibility', 'PATCH', {'baseRevision': saved['revision'], 'mutationId': ident(), 'visibility': 'public'}, at)
+try:
+    assert call('/public/' + rich_id)['body']['richText'] == rich
+    copy_id = ident()
+    copied = call('/notes/' + copy_id, 'PUT', {**save(copy_id, {**rich_body, 'sourceId': rich_id}), 'bodyFormat': 2}, bt)
+    assert copied['body']['richText'] == rich
+finally:
+    hidden = call('/notes/' + rich_id + '/visibility', 'PATCH', {'baseRevision': shared_rich['revision'], 'mutationId': ident(), 'visibility': 'private'}, at)
+# An upgraded client can explicitly convert to a checklist without stale formatting.
+converted = call('/notes/' + rich_id, 'PUT', {**save(rich_id, {**body, 'content': '', 'kind': 'checklist', 'items': [{'id': ident(), 'text': '서식 제목', 'done': False}], 'richText': None}, hidden['revision']), 'bodyFormat': 2}, at)
+assert converted['body']['richText'] is None and converted['body']['kind'] == 'checklist'
 call('/auth/logout', 'POST', token=at, expected=200)
 call('/notes', token=at, expected=401)
-print('PASS: registration, login, ownership, privacy, idempotent writes, conflicts, fork, unpublish, trash, logout')
+print('PASS: registration, login, ownership, privacy, idempotent writes, conflicts, fork, unpublish, trash, rich text roundtrip/validation/compatibility, logout')

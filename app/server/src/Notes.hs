@@ -4,7 +4,7 @@ module Notes (listOwn, listPublic, getPublic, saveNote, shareNote) where
 import Control.Monad (unless, void)
 import Data.Aeson
 import Data.List (nub)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -14,6 +14,7 @@ import Servant
 import Auth (auth)
 import Database (Env, db)
 import Model
+import RichText (richTextContent)
 
 -- A public link never grants access to a related private note.
 noteSelect :: Query
@@ -41,11 +42,12 @@ validBody b = T.length (nTitle b) <= 300 && T.length (nContent b) <= 100000
   && length (nItems b) <= 500 && all (\i -> T.length (iText i) <= 3000 && validUUID (iId i)) (nItems b)
   && length (nub $ map iId $ nItems b) == length (nItems b)
   && length (nLabels b) <= 20 && all (\l -> not (T.null $ T.strip l) && T.length l <= 32) (nLabels b)
+  && maybe True (\rich -> nKind b == "text" && richTextContent rich == Just (nContent b)) (nRichText b)
 
 -- A mutation receipt lives in the same transaction as the write. A lost response
 -- can be retried without incrementing the revision twice.
-mutate :: Env -> User -> Text -> Text -> Int -> Maybe NoteBody -> Maybe Visibility -> Handler Note
-mutate env user ident mutation base incoming sharing = do
+mutate :: Env -> User -> Text -> Text -> Int -> Bool -> Maybe NoteBody -> Maybe Visibility -> Handler Note
+mutate env user ident mutation base supportsRichText incoming sharing = do
   unless (validUUID ident && validUUID mutation && base >= 0) $ err err400 "잘못된 메모 요청입니다."
   result <- db env $ \c -> withTransaction c $ do
     -- Serializes even concurrent creation of a previously absent UUID.
@@ -59,7 +61,12 @@ mutate env user ident mutation base incoming sharing = do
           [current@(Note _ owner rev visibility old _ _)]
             | owner /= uId user -> pure $ Left (Left (404, Nothing))
             | base /= rev -> pure $ Left (Left (409, Just current))
-            | otherwise -> write c (rev+1) (fromMaybe old incoming) (fromMaybe visibility sharing)
+            | Just body <- incoming, not supportsRichText, isJust (nRichText old), isNothing (nRichText body)
+              , nContent body /= nContent old || nKind body /= nKind old -> pure $ Left (Left (400, Nothing))
+            | otherwise -> do
+                let body = fromMaybe old incoming
+                    compatible = if not supportsRichText && isNothing (nRichText body) then body { nRichText = nRichText old } else body
+                write c (rev+1) compatible (fromMaybe visibility sharing)
           [] | base == 0, Just body <- incoming, sharing == Nothing -> do
             sourceOK <- case nSourceId body of
               Nothing -> pure True
@@ -74,6 +81,7 @@ mutate env user ident mutation base incoming sharing = do
       Success note -> pure note
       Error _ -> err err500 "저장 결과를 읽을 수 없습니다."
     Left (Left (404,_)) -> err err404 "메모를 찾을 수 없습니다."
+    Left (Left (400,_)) -> err err400 "서식을 유지하려면 앱을 업데이트한 뒤 수정해 주세요."
     Left (Left (_,current)) -> throwError err409 {errBody=encode $ object ["message" .= ("다른 기기에서 수정되었습니다." :: Text),"current" .= current], errHeaders=[("Content-Type","application/json")]}
   where
     write :: Connection -> Int -> NoteBody -> Visibility -> IO (Either (Either (Int, Maybe Note) Value) Note)
@@ -91,9 +99,9 @@ saveNote :: Env -> Maybe Text -> Text -> Save -> Handler Note
 saveNote env header ident request = do
   user <- auth env header
   unless (validBody $ sBody request) $ err err400 "메모의 길이나 형식을 확인해 주세요."
-  mutate env user ident (sMutationId request) (sBaseRevision request) (Just $ sBody request) Nothing
+  mutate env user ident (sMutationId request) (sBaseRevision request) (sBodyFormat request == Just 2) (Just $ sBody request) Nothing
 
 shareNote :: Env -> Maybe Text -> Text -> Sharing -> Handler Note
 shareNote env header ident request = do
   user <- auth env header
-  mutate env user ident (vMutationId request) (vBaseRevision request) Nothing (Just $ vVisibility request)
+  mutate env user ident (vMutationId request) (vBaseRevision request) True Nothing (Just $ vVisibility request)

@@ -32,11 +32,12 @@ data NoteBody = NoteBody
   { nTitle :: Text, nContent :: Text, nKind :: Text, nItems :: [Item]
   , nColor :: Text, nLabels :: [Text], nPinned :: Bool, nArchived :: Bool
   , nTrashed :: Bool, nSourceId :: Maybe Text
+  , nRichText :: Maybe Value
   } deriving (Generic, Show, Eq)
 instance ToJSON NoteBody where toJSON = genericToJSON opts
 instance FromJSON NoteBody where parseJSON = genericParseJSON opts
 
-data Save = Save { sBaseRevision :: Int, sMutationId :: Text, sBody :: NoteBody } deriving Generic
+data Save = Save { sBaseRevision :: Int, sMutationId :: Text, sBody :: NoteBody, sBodyFormat :: Maybe Int } deriving Generic
 instance FromJSON Save where parseJSON = genericParseJSON opts
 
 data Sharing = Sharing { vBaseRevision :: Int, vMutationId :: Text, vVisibility :: Visibility } deriving Generic

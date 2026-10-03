@@ -1,7 +1,10 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { Capacitor } from '@capacitor/core';
-  import { Archive, ArrowLeft, CheckSquare, Copy, ExternalLink, FileText, Globe2, LockKeyhole, Palette, Pin, Plus, Tag, X } from '@lucide/svelte';
+  import { Archive, ArrowLeft, CheckSquare, Copy, ExternalLink, FileText, Globe2, LockKeyhole, Palette, Pin, Plus, Tag, X, Type, Undo2, Redo2 } from '@lucide/svelte';
+  import type { Editor as TiptapEditor } from '@tiptap/core';
+  import { hasFormatting } from '../richText';
+  import RichTextEditor from './RichTextEditor.svelte';
   import { noteStyle, uid, type LocalNote, type NoteBody, type Session, type Visibility } from '../model';
   import { errorMessage } from '../api';
   import IconButton from './IconButton.svelte';
@@ -14,17 +17,14 @@
   let body = $state(structuredClone(untrack(() => note.body)));
   let palette = $state(false), tagOpen = $state(false), tag = $state('');
   let saving = $state(false), sharing = $state(false), linkCopied = $state(false), error = $state('');
-  let textarea = $state<HTMLTextAreaElement>();
+  let richEditor = $state.raw<TiptapEditor | null>(null);
+  let formatting = $state(false), canUndo = $state(false), canRedo = $state(false), confirmChecklist = $state(false);
   let last = JSON.stringify(untrack(() => body)), seq = 0, failed = false, pending = Promise.resolve();
 
   // Persist plain snapshots, in order. Binding changes are batched without saving on mount.
   $effect(() => {
     const snapshot = $state.snapshot(body), signature = JSON.stringify(snapshot);
     untrack(() => { if (signature !== last) { last = signature; save(snapshot); } });
-  });
-  $effect(() => {
-    body.content;
-    if (textarea) { textarea.style.height = 'auto'; textarea.style.height = Math.max(180, textarea.scrollHeight) + 'px'; }
   });
   function save(snapshot = $state.snapshot(body)) {
     saving = true; error = '';
@@ -47,9 +47,18 @@
     body.items.splice(index, 0, { id: uid(), text: '', done: false });
     await tick(); document.querySelector<HTMLInputElement>(`input[aria-label="항목 ${index + 1}"]`)?.focus();
   }
-  function toggleKind() {
-    if (body.kind === 'text') { body.items = body.content.split('\n').filter(Boolean).map(text => ({ id: uid(), text, done: false })); body.content = ''; body.kind = 'checklist'; }
-    else { body.content = body.items.map(i => i.text).join('\n'); body.items = []; body.kind = 'text'; }
+  function toggleKind(confirmed = false) {
+    if (body.kind === 'text') {
+      const lines = body.content.split('\n').filter(Boolean);
+      if (lines.length > 500 || lines.some(line => line.length > 3000)) { error = '체크리스트는 500개 항목, 항목마다 3,000자까지 가능해요. 내용을 나누어 주세요.'; return; }
+      if (!confirmed && hasFormatting(body.content, body.richText)) { confirmChecklist = true; return; }
+      body.items = lines.map(text => ({ id: uid(), text, done: false })); body.content = ''; body.richText = null; body.kind = 'checklist';
+    } else {
+      const text = body.items.map(i => i.text).join('\n');
+      if (text.length > 100000) { error = '본문은 100,000자까지 가능해요. 내용을 나누어 주세요.'; return; }
+      body.content = text; body.richText = null; body.items = []; body.kind = 'text';
+    }
+    confirmChecklist = false;
   }
   async function copyLink() {
     try { await navigator.clipboard.writeText(`${import.meta.env.VITE_PUBLIC_URL || location.origin}/?note=${note.id}`); linkCopied = true; }
@@ -66,8 +75,9 @@
         <IconButton label={body.pinned ? '고정 해제' : '메모 고정'} icon={Pin} size={21} active={body.pinned} fill={body.pinned ? 'currentColor' : 'none'} onclick={() => body.pinned = !body.pinned}/>
       </div>
       {#if body.kind === 'text'}
-        <!-- svelte-ignore a11y_autofocus (Focus the editor after the user opens its modal.) -->
-        <textarea autofocus bind:this={textarea} aria-label="메모 내용" placeholder="메모 작성…" maxlength={100000} bind:value={body.content}></textarea>
+        <RichTextEditor text={body.content} richText={body.richText} {formatting} bind:editor={richEditor}
+          onChange={(text, value) => { body.content = text; body.richText = value; }}
+          onHistory={(undo, redo) => { canUndo = undo; canRedo = redo; }}/>
       {:else}
         <div class="editor-checklist">
           {#each body.items as item, index (item.id)}
@@ -93,13 +103,19 @@
         <span>{sharing ? '변경 중…' : !session ? '로그인하면 메모를 공유할 수 있어요' : note.visibility === 'public' ? '이후 수정한 내용도 함께 공개돼요' : '나를 위한 메모예요'}</span>
       </div>
       {#if note.visibility === 'public' && (!Capacitor.isNativePlatform() || import.meta.env.VITE_PUBLIC_URL)}<button class="source-link" onclick={copyLink}><Copy size={13}/>{linkCopied ? '링크를 복사했어요' : '공개 링크 복사'}</button>{/if}
+      {#if confirmChecklist}<div class="conversion-confirm" role="group" aria-label="체크리스트 전환 확인"><p>체크리스트로 바꾸면 제목 서식과 굵게·기울임·밑줄이 지워져요.</p><button class="text-button" onclick={() => confirmChecklist = false}>취소</button><button class="text-button" onclick={() => toggleKind(true)}>서식 지우고 전환</button></div>{/if}
       {#if error}<div role="alert" class="error">{error}<button onclick={() => save()}>다시 저장</button></div>{/if}
     </div>
     <div class="editor-toolbar"><div>
+      {#if body.kind === 'text'}<IconButton label="서식 도구" icon={Type} size={19} active={formatting} onclick={() => formatting = !formatting}/>{/if}
       <IconButton label="색상 바꾸기" icon={Palette} size={19} active={palette} onclick={() => palette = !palette}/>
       <IconButton label="라벨 추가" icon={Tag} size={19} active={tagOpen} onclick={() => tagOpen = !tagOpen}/>
-      <IconButton label={body.kind === 'text' ? '체크리스트로 바꾸기' : '텍스트로 바꾸기'} icon={body.kind === 'text' ? CheckSquare : FileText} size={19} onclick={toggleKind}/>
+      <IconButton label={body.kind === 'text' ? '체크리스트로 바꾸기' : '텍스트로 바꾸기'} icon={body.kind === 'text' ? CheckSquare : FileText} size={19} onclick={() => toggleKind()}/>
       <IconButton label={body.archived ? '보관 해제' : '메모 보관'} icon={Archive} size={19} onclick={() => body.archived = !body.archived}/>
+      {#if body.kind === 'text'}
+        <IconButton label="실행 취소" icon={Undo2} size={19} disabled={!canUndo} onclick={() => richEditor?.chain().focus().undo().run()}/>
+        <IconButton label="다시 실행" icon={Redo2} size={19} disabled={!canRedo} onclick={() => richEditor?.chain().focus().redo().run()}/>
+      {/if}
     </div><span class="save-caption">{saving ? '저장 중…' : '기기에 저장됨'}</span><button class="text-button" onclick={close}>닫기</button></div>
   </div>
 </Modal>
@@ -137,20 +153,7 @@
     color: inherit;
   }
 
-  .editor textarea {
-    padding: 8px 24px 22px;
-    width: 100%;
-    resize: none;
-    display: block;
-    min-height: 180px;
-    max-height: 48dvh;
-    line-height: 1.85;
-    font-size: 15px;
-    border: 0;
-    background: none;
-    color: inherit;
-    outline: 0;
-  }
+  .conversion-confirm { margin: 0 20px 12px; padding: 12px; background: var(--hover); border-radius: 8px; font-size: 13px; }
 
   .editor-content > :global(.palette) {
     padding: 12px 24px;
@@ -166,6 +169,7 @@
     align-items: center;
     gap: 7px;
     padding: 6px 14px;
+    flex-wrap: wrap;
   }
 
   .editor-toolbar > div {
@@ -339,13 +343,8 @@
       font-size: 20px;
     }
 
-    .editor textarea {
-      max-height: none;
-      min-height: 220px;
-      flex: 1;
-      padding: 10px 22px 24px;
-      font-size: 16px;
-    }
+    .editor-toolbar :global(.icon-button) { width: 32px; height: 38px; }
+    .editor-toolbar > div { gap: 0; }
 
     .editor-toolbar {
       padding: 8px 10px calc(8px + var(--app-safe-bottom));

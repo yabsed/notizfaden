@@ -3,6 +3,7 @@
   import { noteStyle, type LocalNote, type Note, type NoteBody } from '../model';
   import IconButton from './IconButton.svelte';
   import PalettePicker from './PalettePicker.svelte';
+  import RichTextView from './RichTextView.svelte';
   let { note, own = true, onOpen, onChange, onFork, onTag }: {
     note: Note; own?: boolean; onOpen: () => void; onChange?: (patch: Partial<NoteBody>) => void; onFork?: () => void; onTag?: (label: string) => void;
   } = $props();
@@ -23,7 +24,7 @@
       {/each}
       {#if b.items.length > 9}<small>+ {b.items.length - 9}개 항목</small>{/if}
     </div>
-  {:else}<p class="card-text">{b.content || (!b.title ? '빈 메모' : '')}</p>{/if}
+  {:else}<div class="card-text"><RichTextView text={b.content || (!b.title ? '빈 메모' : '')} richText={b.richText}/></div>{/if}
   {#if b.labels.length}<div class="labels">{#each b.labels as label}<button onclick={() => onTag?.(label)}>{label}</button>{/each}</div>{/if}
   {#if (note as LocalNote).conflict}<span class="conflict-badge">다른 기기의 수정본이 있어요</span>{/if}
   <div class="card-bottom">

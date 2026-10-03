@@ -9,7 +9,7 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).then(response => { if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put('/', copy)); } return response; }).catch(() => caches.match('/')));
-  } else if ((/^\/(assets|fonts)\//.test(url.pathname) || url.pathname === '/icon.svg')) {
+  } else if ((/^\/(assets|fonts)\//.test(url.pathname) || url.pathname === '/icon.svg' || url.pathname === '/third-party-licenses.txt')) {
     event.respondWith(caches.open(CACHE).then(cache => cache.match(event.request, { ignoreVary: true })).then(cached => cached || fetch(event.request).then(response => { if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); } return response; })));
   }
 });

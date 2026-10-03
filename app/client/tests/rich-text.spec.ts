@@ -1,0 +1,160 @@
+import { test, expect } from '@playwright/test';
+
+test('Korean composition in the middle of text survives autosave and reopening', async ({ page, context }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
+  await page.getByRole('textbox', { name: '메모 제목' }).fill('한글 조합 검증');
+  const content = page.getByRole('textbox', { name: '메모 내용' });
+  await content.fill('앞 뒤');
+  await content.press('Home');
+  await content.press('ArrowRight');
+  const input = await context.newCDPSession(page);
+  await input.send('Input.imeSetComposition', { text: 'ㅎ', selectionStart: 1, selectionEnd: 1 });
+  await expect(content).toHaveText('앞ㅎ 뒤');
+  await input.send('Input.imeSetComposition', { text: '한', selectionStart: 1, selectionEnd: 1 });
+  await input.send('Input.insertText', { text: '한' });
+  await content.press('ArrowRight');
+  await content.press('!');
+  await expect(content).toHaveText('앞한 !뒤');
+  await page.getByRole('button', { name: '닫기', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: '한글 조합 검증 열기', exact: true }).click();
+  await expect(content).toHaveText('앞한 !뒤');
+  await input.detach();
+});
+
+test('format selection, undo/redo, headings, persistence, search and safe checklist conversion', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
+  await page.getByRole('textbox', { name: '메모 제목' }).fill('서식 검증');
+  const content = page.getByRole('textbox', { name: '메모 내용' });
+  await content.fill('강조할 문장');
+  await content.press('ControlOrMeta+a');
+  await page.getByRole('button', { name: '서식 도구', exact: true }).click();
+  await page.getByRole('button', { name: '굵게', exact: true }).click();
+  await expect(content.locator('strong')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  await expect(content.locator('strong')).toHaveCount(0);
+  await page.getByRole('button', { name: '다시 실행', exact: true }).click();
+  await expect(content.locator('strong')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '기울임', exact: true }).click();
+  await page.getByRole('button', { name: '밑줄', exact: true }).click();
+  await page.getByRole('button', { name: '제목 1', exact: true }).click();
+  await expect(content.locator('h1 strong em u')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '제목 2', exact: true }).click();
+  await expect(content.locator('h2')).toHaveText('강조할 문장');
+  await expect(page.getByRole('button', { name: '제목 2', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '닫기', exact: true }).click();
+  await page.reload();
+  await page.getByRole('searchbox').fill('강조할');
+  const card = page.getByTestId('note-card');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('h2 .rich-bold.rich-italic.rich-underline')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '서식 검증 열기', exact: true }).click();
+  await expect(content.locator('h2 strong em u')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '체크리스트로 바꾸기', exact: true }).click();
+  await page.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(content.locator('h2')).toHaveText('강조할 문장');
+  await page.getByRole('button', { name: '체크리스트로 바꾸기', exact: true }).click();
+  await page.getByRole('button', { name: '서식 지우고 전환', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '항목 1', exact: true })).toHaveValue('강조할 문장');
+  await page.getByRole('button', { name: '텍스트로 바꾸기', exact: true }).click();
+  await expect(content).toHaveText('강조할 문장');
+  await expect(content.locator('h2,strong,em,u')).toHaveCount(0);
+  await page.getByRole('button', { name: '닫기', exact: true }).click();
+  await page.reload();
+  await expect(page.getByTestId('note-card').filter({ hasText: '서식 검증' }).locator('h2,.rich-bold')).toHaveCount(0);
+});
+
+test('clear formatting, safe pasted HTML, legacy text and mobile toolbar', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto('/');
+  await page.getByRole('button', { name: '어두운 테마', exact: true }).click();
+  await page.getByRole('button', { name: '메모는 이렇게 써요 열기', exact: true }).click();
+  const content = page.getByRole('textbox', { name: '메모 내용' });
+  await expect(content).toContainText('카드를 누르면 바로 편집할 수 있어요.');
+  await page.getByRole('button', { name: '서식 도구', exact: true }).click();
+  await content.fill('<b>그대로 남길 문자열</b>');
+  await content.press('ControlOrMeta+a');
+  await content.press('ControlOrMeta+b');
+  await page.getByRole('button', { name: '제목 1', exact: true }).click();
+  await page.getByRole('button', { name: '서식 지우기', exact: true }).click();
+  await expect(content.locator('h1,strong')).toHaveCount(0);
+  await expect(content).toHaveText('<b>그대로 남길 문자열</b>');
+  await content.press('ControlOrMeta+a');
+  await content.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', '<h2 onclick="window.badPaste=true">붙여넣기 <b>굵게</b></h2><p><img src=x onerror="window.badPaste=true"><a href="javascript:alert(1)">링크 텍스트</a></p>');
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+  });
+  await expect(content.locator('h2 strong')).toHaveText('굵게');
+  await expect(content.locator('img,a,[onclick]')).toHaveCount(0);
+  expect(await page.evaluate(() => 'badPaste' in window)).toBe(false);
+  expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect(page.getByRole('button', { name: '서식 지우기', exact: true })).toBeInViewport();
+  await expect(page.getByRole('button', { name: '다시 실행', exact: true })).toBeInViewport();
+  await page.getByRole('button', { name: '메모 닫기', exact: true }).click();
+  await page.reload();
+  await expect(page.getByTestId('note-card').filter({ hasText: '메모는 이렇게 써요' }).locator('h2 .rich-bold')).toHaveText('굵게');
+});
+
+test('rich text survives API sync, public reader and fork', async ({ page, request, browser }) => {
+  const registration = await request.post('/api/auth/register', { data: { username: 'rich_' + Date.now(), password: 'rich-text-test-password' } });
+  expect(registration.ok()).toBe(true);
+  const session = await registration.json();
+  await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
+  await page.goto('/');
+  await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
+  await page.getByRole('textbox', { name: '메모 제목' }).fill('공개 서식');
+  const content = page.getByRole('textbox', { name: '메모 내용' });
+  await content.fill('함께 읽는 서식');
+  await content.press('ControlOrMeta+a');
+  await content.press('ControlOrMeta+u');
+  await page.getByRole('combobox', { name: '공개 범위' }).selectOption('public');
+  await expect(page.getByRole('combobox', { name: '공개 범위' })).toHaveValue('public');
+  await page.getByRole('button', { name: '닫기', exact: true }).click();
+  const headers = { Authorization: `Bearer ${session.token}` };
+  const notes = await (await request.get('/api/notes', { headers })).json();
+  const note = notes.find((n: { body: { title: string } }) => n.body.title === '공개 서식');
+  expect(note.body.richText.version).toBe(1);
+  const context = await browser.newContext();
+  const visitor = await context.newPage();
+  try {
+    await visitor.goto(`/?note=${note.id}`);
+    await expect(visitor.getByRole('dialog', { name: '공개 메모' }).locator('.rich-underline')).toHaveText('함께 읽는 서식');
+    await visitor.getByRole('button', { name: '내 메모로 이어 쓰기', exact: true }).click();
+    await expect(visitor.getByRole('textbox', { name: '메모 내용' }).locator('u')).toHaveText('함께 읽는 서식');
+    await visitor.getByRole('button', { name: '닫기', exact: true }).click();
+    await visitor.reload();
+    await expect(visitor.getByTestId('note-card').filter({ hasText: '공개 서식' }).locator('.rich-underline')).toHaveText('함께 읽는 서식');
+  } finally {
+    await context.close();
+    await request.patch(`/api/notes/${note.id}/visibility`, { headers, data: { baseRevision: note.revision, mutationId: crypto.randomUUID(), visibility: 'private' } });
+  }
+});
+
+test('an old server response cannot erase local formatting and a retry can recover', async ({ page, request }) => {
+  const registration = await request.post('/api/auth/register', { data: { username: 'legacy_' + Date.now(), password: 'rich-text-test-password' } });
+  const session = await registration.json();
+  await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
+  await page.goto('/');
+  await page.route('**/api/notes/*', async route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    const response = await route.fetch();
+    const saved = await response.json();
+    await route.fulfill({ response, json: { ...saved, body: { ...saved.body, richText: null } } });
+  });
+  await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
+  const content = page.getByRole('textbox', { name: '메모 내용' });
+  await content.fill('서식을 잃지 않아요');
+  await content.press('ControlOrMeta+a');
+  await content.press('ControlOrMeta+b');
+  await page.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('서버 업데이트가 필요해요. 서식 메모는 기기에 보관됩니다.');
+  await expect(page.getByTestId('note-card').locator('.rich-bold')).toHaveText('서식을 잃지 않아요');
+  await page.unroute('**/api/notes/*');
+  await page.locator('.sync-status').click();
+  await expect(page.locator('.sync-status')).toHaveText('동기화됨');
+  await page.reload();
+  await expect(page.getByTestId('note-card').locator('.rich-bold')).toHaveText('서식을 잃지 않아요');
+});

@@ -2,6 +2,16 @@
    See THIRD_PARTY_LICENSES.txt.
    Shared theme, base elements, and styles used by multiple components. */
 
+.rich-document { white-space: pre-wrap; overflow-wrap: anywhere; font-synthesis: weight style; }
+.rich-document p { margin: 0; min-height: 1.85em; }
+.rich-document h1 { font-size: 1.55em; line-height: 1.5; font-weight: 700; margin: .3em 0; }
+.rich-document h2 { font-size: 1.25em; line-height: 1.6; font-weight: 700; margin: .25em 0; }
+.rich-document > :first-child { margin-top: 0; }
+.rich-document > :last-child { margin-bottom: 0; }
+.rich-document strong, .rich-bold { font-weight: 700; }
+.rich-document em, .rich-italic { font-style: italic; }
+.rich-document u, .rich-underline { text-decoration: underline; }
+
 @font-face {
   font-family: Roboto;
   src: url('/fonts/Roboto-Regular.woff') format('woff');

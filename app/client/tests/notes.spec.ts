@@ -119,7 +119,7 @@ test('account, two devices, public feed, fork and unpublish use the Haskell API'
 });
 
 test('offline simultaneous edits keep both versions after reconnect', async ({ page, browser, request }) => {
-  const response = await request.post('http://localhost:8081/api/auth/register', { data: { username: 'conflict_' + Date.now(), password: 'teum-conflict-password' } });
+  const response = await request.post('/api/auth/register', { data: { username: 'conflict_' + Date.now(), password: 'teum-conflict-password' } });
   const session = await response.json();
   await page.addInitScript(s => localStorage.setItem('teum-session', JSON.stringify(s)), session);
   await page.goto('/');
@@ -152,7 +152,7 @@ test('offline simultaneous edits keep both versions after reconnect', async ({ p
 test('login and logout in another tab close dialogs and switch account storage', async ({ page, context, request }) => {
   const username = 'tabs_' + Date.now();
   const password = 'teum-tabs-test-password';
-  const registration = await request.post('http://localhost:8081/api/auth/register', {
+  const registration = await request.post('/api/auth/register', {
     data: { username, password }
   });
   expect(registration.ok()).toBeTruthy();

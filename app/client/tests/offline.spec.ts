@@ -3,15 +3,18 @@ import { test, expect } from '@playwright/test';
 // not Vite's development server (which intentionally has no service worker).
 test('installed web shell and notes reopen fully offline', async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage();
-  await page.goto('http://localhost:5174/');
+  await page.goto(process.env.NOTIZFADEN_PREVIEW_URL || 'http://localhost:5174/');
   await expect(page.getByTestId('note-card')).toHaveCount(8);
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBeTruthy();
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 내용' }).fill('인터넷 없이도 남아 있는 메모');
+  await page.getByRole('textbox', { name: '메모 내용' }).press('ControlOrMeta+a');
+  await page.getByRole('textbox', { name: '메모 내용' }).press('ControlOrMeta+b');
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await context.setOffline(true); await page.reload();
   await expect(page.getByText('인터넷 없이도 남아 있는 메모', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('note-card').filter({ hasText: '인터넷 없이도 남아 있는 메모' }).locator('.rich-bold')).toHaveText('인터넷 없이도 남아 있는 메모');
   await page.getByRole('button', { name: '인터넷 없이도 남아 있는 메모 열기', exact: true }).click();
   await page.getByRole('textbox', { name: '메모 내용' }).fill('오프라인에서 수정한 메모');
   await page.getByRole('button', { name: '닫기', exact: true }).click();

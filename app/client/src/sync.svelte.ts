@@ -22,7 +22,17 @@ export function sync(session: Session) {
     const local = await db.notes.where('scope').equals(scope).toArray();
     for (const captured of local.filter(needsUpload)) {
       try {
-        const saved = await request<Note>(`/notes/${captured.id}`, session, 'PUT', { baseRevision: captured.revision, mutationId: captured.mutationId, body: captured.body });
+        const saved = await request<Note>(`/notes/${captured.id}`, session, 'PUT', { baseRevision: captured.revision, mutationId: captured.mutationId, body: captured.body, bodyFormat: 2 });
+        if (captured.body.richText && !saved.body.richText) {
+          // A legacy server may have committed plain text and a mutation receipt.
+          // Keep our document, but advance the base revision and retry with a new
+          // mutation ID so upgrading that server can actually recover the write.
+          await db.transaction('rw', db.notes, async () => {
+            const latest = await db.notes.get([scope, captured.id]);
+            if (latest) await db.notes.put({ ...latest, revision: saved.revision, mutationId: latest.mutationId === captured.mutationId ? uid() : latest.mutationId });
+          });
+          throw new Error('서버 업데이트가 필요해요. 서식 메모는 기기에 보관됩니다.');
+        }
         await db.transaction('rw', db.notes, async () => {
           const latest = await db.notes.get([scope, captured.id]);
           if (!latest) return;

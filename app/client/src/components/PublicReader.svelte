@@ -3,6 +3,7 @@
   import { noteStyle, type Note } from '../model';
   import IconButton from './IconButton.svelte';
   import Modal from './Modal.svelte';
+  import RichTextView from './RichTextView.svelte';
   let { note, onClose, onFork }: { note: Note; onClose: () => void; onFork: () => void } = $props();
 </script>
 
@@ -12,7 +13,7 @@
     <h2>{note.body.title}</h2>
     {#if note.body.kind === 'checklist'}
       {#each note.body.items as item (item.id)}<p class:completed={item.done}>{item.done ? '☑' : '☐'} {item.text}</p>{/each}
-    {:else}<p class="reader-content">{note.body.content}</p>{/if}
+    {:else}<div class="reader-content"><RichTextView text={note.body.content} richText={note.body.richText}/></div>{/if}
     <div class="reader-footer"><span><Globe2 size={14}/> 전체 공개</span><button class="text-button" onclick={onFork}><Copy size={16}/> 내 메모로 이어 쓰기</button></div>
   </div>
 </Modal>

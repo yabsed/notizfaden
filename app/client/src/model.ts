@@ -1,7 +1,8 @@
+import type { RichText } from './richText';
 export type Visibility = 'private' | 'public';
 export type Kind = 'text' | 'checklist';
 export interface Item { id: string; text: string; done: boolean }
-export interface NoteBody { title: string; content: string; kind: Kind; items: Item[]; color: string; labels: string[]; pinned: boolean; archived: boolean; trashed: boolean; sourceId: string | null }
+export interface NoteBody { title: string; content: string; richText?: RichText | null; kind: Kind; items: Item[]; color: string; labels: string[]; pinned: boolean; archived: boolean; trashed: boolean; sourceId: string | null }
 export interface User { id: string; name: string }
 export interface Note { id: string; body: NoteBody; visibility: Visibility; revision: number; updatedAt: string; author: User }
 export interface LocalNote extends Note { scope: string; dirty: boolean; mutationId: string; conflict?: Note; syncError?: string }
