@@ -5,12 +5,14 @@
   import { moveInOrder } from '../reordering';
   import { Compass, RefreshCw, Heart, MessageCircle, UserPlus, Bell } from '@lucide/svelte';
   import { ApiError, errorMessage, request } from '../api';
+  import { hasTag, queryTag } from '../tags';
   import type { Session } from '../model';
   import { ago, avatarChoices, displayName, type Profile, type Post, type Page, type Notice, type NotificationPage, type Report } from '../social';
   import NoteCard from './NoteCard.svelte';
   import Person from './Person.svelte';
   import Modal from './Modal.svelte';
-  let { view, feedTab = 'posts', onFeedTab = () => {}, profileId = '', profileOnly = false, session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady, onOpenNote }: {
+  let { view, feedTab = 'posts', onFeedTab = () => {}, profileId = '', profileOnly = false, session, query, list, revision = 0, onRead, onProfile, onLogin, onUnread, onReady, onOpenNote, onTag }: {
+    onTag: (tag: string) => void;
     view: 'feed' | 'profile' | 'notifications'; feedTab?: 'posts' | 'people'; onFeedTab?: (tab: 'posts' | 'people') => void; profileId?: string; profileOnly?: boolean; session: Session | null; query: string; list: boolean; revision?: number;
     onOpenNote: (id: string) => void;
     onRead: (id: string) => void; onProfile: (id: string) => void; onLogin: () => void; onUnread: (count: number) => void; onReady: () => void;
@@ -70,7 +72,7 @@
         const person: Profile = await endpoint(`/profiles/${profileId}`);
         if (ticket !== serial) return;
         profile = person;
-        if (!profileOnly) { const data: Page<Post> = await endpoint(`/feed?author=${profileId}${more && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); if (ticket !== serial) return; posts = more ? [...posts, ...data.items] : data.items; cursor = data.cursor; }
+        if (!profileOnly) { const data: Page<Post> = await endpoint(`/feed?author=${profileId}${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}${more && cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); if (ticket !== serial) return; posts = more ? [...posts, ...data.items] : data.items; cursor = data.cursor; }
         if (person.id === session?.user.id) {
           try { const reports: Report[] = await endpoint('/admin/reports'); if (ticket === serial) adminReports = reports; } catch { /* Regular accounts have no moderation queue. */ }
         }
@@ -106,7 +108,7 @@
           hasNewPosts = data.items.some(post => !posts.some(old => old.note.id === post.note.id));
           // Keep the baseline order as well as the temporary arrangement.
           // Removed/private posts disappear; existing reactions can update.
-          posts = posts.flatMap(post => { const next = updated.get(post.note.id); return next ? [next] : []; });
+          posts = posts.flatMap(post => { const next = updated.get(post.note.id); return next && (queryTag(query) === null || hasTag(next.note.body, queryTag(query)!)) ? [next] : []; });
         } else {
           posts = more ? [...posts, ...data.items.filter(p => !posts.some(old => old.note.id === p.note.id))] : data.items;
           cursor = data.cursor;
@@ -212,7 +214,7 @@
   {#if message}<p class="hint" role="status">{message}</p>{/if}
   {#if (view === 'feed' && feedTab === 'posts') || (view === 'profile' && !profileOnly)}
     {#if view === 'feed'}<div class="feed-arrangement">{#if temporaryOrder.length}<span role="status">임시 배치</span><button class="text-button" onclick={() => temporaryOrder = []}>원래 순서로</button>{/if}{#if hasNewPosts}<button class="text-button new-posts" disabled={loading} onclick={() => load()}>새 글 보기</button>{/if}</div>{/if}
-    <div class="social-grid" class:list use:masonry use:reorderable={{ enabled: view === 'feed' && feedTab === 'posts', context: `${contextKey}:${list}`, ids: orderedPosts.map(post => post.note.id), onMove: movePost }}>{#each orderedPosts as post (post.note.id)}<NoteCard note={post.note} canReorder={view === 'feed' && orderedPosts.length > 1} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
+    <div class="social-grid" class:list use:masonry use:reorderable={{ enabled: view === 'feed' && feedTab === 'posts', context: `${contextKey}:${list}`, ids: orderedPosts.map(post => post.note.id), onMove: movePost }}>{#each orderedPosts as post (post.note.id)}<NoteCard {onTag} note={post.note} canReorder={view === 'feed' && orderedPosts.length > 1} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
     {#if cursor}<button class="load-more" disabled={loading} onclick={() => load(true)}>{loading ? '불러오는 중…' : '메모 더 보기'}</button>{/if}
     {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{query.trim() && view !== 'profile' ? '검색한 공개 메모를 찾지 못했어요' : following && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : view === 'feed' && sort === 'top' ? '최근 7일에 공개된 메모가 없어요' : '아직 공개된 메모가 없어요'}</h2><p>{query.trim() && view !== 'profile' ? '다른 단어나 이름으로 검색해 보세요.' : view === 'feed' && sort === 'top' ? '최신순으로 바꾸면 이전 메모도 볼 수 있어요.' : '사람들에서 팔로우하거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
   {/if}

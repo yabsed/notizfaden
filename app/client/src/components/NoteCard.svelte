@@ -7,11 +7,12 @@
   import { displayName, type Profile } from '../social';
   import type { Reactions } from '../notebookSocial.svelte';
   import RichTextView from './RichTextView.svelte';
+  import { noteTags } from '../tags';
   let { note, own = true, canReorder = false, onOpen, onChange, onFork, onTag, reactions, onLike, onConversation, author, onProfile, testId = 'note-card' }: {
     canReorder?: boolean;
     author?: Profile | null; onProfile?: () => void; testId?: string;
     reactions?: Reactions; onLike?: () => Promise<void>; onConversation?: () => void;
-    note: Note; own?: boolean; onOpen: () => void; onChange?: (patch: Partial<NoteBody>) => void; onFork?: () => void; onTag?: (label: string) => void;
+    note: Note; own?: boolean; onOpen: () => void; onChange?: (patch: Partial<NoteBody>) => void; onFork?: () => void; onTag?: (tag: string) => void;
   } = $props();
   let b = $derived(note.body);
   let palette = $state(false);
@@ -32,7 +33,7 @@
       {#if b.items.length > 9}<small>+ {b.items.length - 9}개 항목</small>{/if}
     </div>
   {:else}<div class="card-text"><RichTextView text={b.content || (!b.title ? '빈 메모' : '')} richText={b.richText}/></div>{/if}
-  {#if b.labels.length}<div class="labels">{#each b.labels as label}<button onclick={() => onTag?.(label)}>{label}</button>{/each}</div>{/if}
+  {#if b.labels.length}<div class="tags">{#each noteTags(b) as tag}<button aria-label={`#${tag} ${own ? '내 메모' : '공개 글'} 보기`} onclick={() => onTag?.(tag)}>#{tag}</button>{/each}</div>{/if}
   {#if (note as LocalNote).conflict}<span class="conflict-badge">다른 기기의 수정본이 있어요</span>{/if}
   <div class="card-bottom">
     <span class="visibility" title={note.visibility === 'public' ? '전체 공개' : '나만 보기'}>{#if note.visibility === 'public'}<Globe2 size={13}/> 공개{:else}<LockKeyhole size={12}/> 비공개{/if}</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { Archive, ArrowLeft, CheckSquare, ExternalLink, FileText, Globe2, LockKeyhole, Palette, Pin, Plus, Tag, X, Type, Undo2, Redo2 } from '@lucide/svelte';
+  import { Archive, ArrowLeft, CheckSquare, ExternalLink, FileText, Globe2, LockKeyhole, Palette, Pin, Plus, Hash, X, Type, Undo2, Redo2 } from '@lucide/svelte';
+  import { cleanTag, noteTags, tagKey, uniqueTags } from '../tags';
   import type { Editor as TiptapEditor } from '@tiptap/core';
   import { hasFormatting } from '../richText';
   import NoteDiscussion from './NoteDiscussion.svelte';
@@ -12,7 +13,8 @@
   import IconButton from './IconButton.svelte';
   import Modal from './Modal.svelte';
   import PalettePicker from './PalettePicker.svelte';
-  let { note, onSave, onClose, onVisibility, session, onSource, readOnly = false, startEditing = false, onSync, onProfile, onLogin, onChanged, onFork }: {
+  let { note, onSave, onClose, onVisibility, session, onSource, readOnly = false, startEditing = false, onSync, onProfile, onLogin, onChanged, onFork, onTag }: {
+    onTag: (tag: string) => void;
     readOnly?: boolean; startEditing?: boolean; onSync: (note: LocalNote) => Promise<void>; onProfile: (id: string) => void; onLogin: () => void; onChanged: () => void; onFork?: () => void;
     note: LocalNote; onSave: (note: LocalNote, body: NoteBody) => Promise<void>; onClose: () => void;
     onVisibility: (note: LocalNote, visibility: Visibility) => Promise<void>; session: Session | null; onSource: (id: string) => void;
@@ -64,7 +66,15 @@
     catch (e) { error = errorMessage(e); }
     finally { sharing = false; }
   }
-  function addTag() { const text = tag.trim().slice(0, 32); if (text && body.labels.length < 20 && !body.labels.includes(text)) body.labels.push(text); tag = ''; }
+  function addTag() {
+    const text = cleanTag(tag).slice(0, 32);
+    if (text && noteTags(body).length < 20) body.labels = uniqueTags([...body.labels, text]);
+    tag = '';
+  }
+  async function findTag(value: string) {
+    await tick(); await pending;
+    if (!failed) { onClose(); onTag(value); }
+  }
   async function insert(index = body.items.length) {
     body.items.splice(index, 0, { id: uid(), text: '', done: false });
     await tick(); document.querySelector<HTMLInputElement>(`input[aria-label="항목 ${index + 1}"]`)?.focus();
@@ -95,7 +105,7 @@
     {#if !viewing}<div class="editor-toolbar" role="toolbar" aria-label="메모 편집 도구"><div>
       {#if body.kind === 'text'}<IconButton label="서식 도구" icon={Type} size={19} active={formatting} onclick={() => formatting = !formatting}/>{/if}
       <IconButton label="색상 바꾸기" icon={Palette} size={19} active={palette} onclick={() => palette = !palette}/>
-      <IconButton label="라벨 추가" icon={Tag} size={19} active={tagOpen} onclick={() => tagOpen = !tagOpen}/>
+      <IconButton label="태그 추가" icon={Hash} size={19} active={tagOpen} onclick={() => tagOpen = !tagOpen}/>
       <IconButton label={body.kind === 'text' ? '체크리스트로 바꾸기' : '텍스트로 바꾸기'} icon={body.kind === 'text' ? CheckSquare : FileText} size={19} onclick={() => toggleKind()}/>
       <IconButton label={body.archived ? '보관 해제' : '메모 보관'} icon={Archive} size={19} onclick={() => body.archived = !body.archived}/>
       {#if body.kind === 'text'}
@@ -127,11 +137,11 @@
           {#if !viewing}<button class="add-item" onclick={() => insert()}><Plus size={18}/> 목록 항목</button>{/if}
         </div>
       {/if}
+      {#if body.labels.length}<div class="tags editor-tags">{#each noteTags(body) as value}<span class="editor-tag"><button onclick={() => findTag(value)}>#{value}</button>{#if !viewing}<button aria-label={`#${value} 태그 삭제`} onclick={() => body.labels = body.labels.filter(item => tagKey(item) !== tagKey(value))}><X size={12}/></button>{/if}</span>{/each}</div>{/if}
       {#if !viewing}
-      {#if body.labels.length}<div class="labels editor-labels">{#each body.labels as label, index}<button title={`${label} 라벨 삭제`} onclick={() => body.labels.splice(index, 1)}>{label}<X size={11}/></button>{/each}</div>{/if}
       {#if body.sourceId}<button class="source-link" onclick={() => onSource(body.sourceId!)}><ExternalLink size={13}/> 원본 메모에서 이어 쓴 생각</button>{/if}
       {#if palette}<PalettePicker selected={body.color} onChange={color => body.color = color}/>{/if}
-      {#if tagOpen}<form class="tag-form" onsubmit={e => { e.preventDefault(); addTag(); }}><Tag size={16}/><input aria-label="새 라벨" placeholder="라벨 이름" maxlength={32} bind:value={tag}/><button type="submit">추가</button></form>{/if}
+      {#if tagOpen}<form class="tag-form" onsubmit={e => { e.preventDefault(); addTag(); }}><Hash size={16}/><input aria-label="새 태그" placeholder="태그 이름" maxlength={33} bind:value={tag}/><button type="submit">추가</button></form><p class="tag-hint">{note.visibility === 'public' ? '이 메모의 태그는 공개 검색에 표시돼요.' : '메모를 공개하면 태그도 함께 공개돼요.'}</p>{/if}
       <div class="sharing-row">
         <label><span>{#if note.visibility === 'public'}<Globe2 size={15}/>{:else}<LockKeyhole size={15}/>{/if}</span>
           <select aria-label="공개 범위" value={note.visibility} disabled={sharing || !session || !!note.conflict} onchange={e => { const next = e.currentTarget.value as Visibility; e.currentTarget.value = note.visibility; void share(next); }}>
@@ -244,7 +254,9 @@
     padding: 12px 24px;
   }
 
-  .editor-labels {
+  .tag-hint { margin:8px 0; color:var(--muted); font-size:12px; }
+  .editor-tag { display:inline-flex; align-items:center; }
+  .editor-tags {
     margin: 0 24px 16px;
   }
 
@@ -379,7 +391,7 @@
   }
 
   @media (max-width: 600px) {
-    .editor-labels {
+    .editor-tags {
       margin-top: 12px;
     }
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('local notes: autosave, labels, search, checklist, archive, trash and restore', async ({ page }) => {
+test('local notes: autosave, tags, search, checklist, archive, trash and restore', async ({ page }) => {
   await page.goto('/?view=notes');
   await expect(page.getByTestId('note-card')).toHaveCount(8);
   await page.getByRole('button', { name: '메모 작성…', exact: true }).click();
@@ -8,8 +8,8 @@ test('local notes: autosave, labels, search, checklist, archive, trash and resto
   await page.getByRole('textbox', { name: '메모 내용' }).fill('한글 자동 저장\n아직 정리되지 않은 생각');
   await page.getByRole('button', { name: '색상 바꾸기', exact: true }).last().click();
   await page.getByRole('button', { name: '민트', exact: true }).click();
-  await page.getByRole('button', { name: '라벨 추가', exact: true }).click();
-  await page.getByRole('textbox', { name: '새 라벨' }).fill('검증');
+  await page.getByRole('button', { name: '태그 추가', exact: true }).click();
+  await page.getByRole('textbox', { name: '새 태그' }).fill('검증');
   await page.getByRole('button', { name: '추가', exact: true }).click();
   await page.getByRole('button', { name: '닫기', exact: true }).click();
   await page.reload();

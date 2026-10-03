@@ -25,7 +25,7 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
   try {
     for (let i = 0; i < 9; i++) {
       const id = crypto.randomUUID();
-      const body = { title: titles[i] || '아직 나만 보는 생각', content: ['골목에서 만난 고양이.\n따뜻한 커피 한 잔.\n오늘도 생각보다 좋은 하루였다.', '서두르지 않고 걷기\n새로운 음악 듣기', '작은 생각도 나누면 이야기가 된다.'][i % 3], kind: 'text', items: [], color: colors[i] || 'default', labels: ['개인라벨'], pinned: false, archived: false, trashed: false, sourceId: null };
+      const body = { title: titles[i] || '아직 나만 보는 생각', content: ['골목에서 만난 고양이.\n따뜻한 커피 한 잔.\n오늘도 생각보다 좋은 하루였다.', '서두르지 않고 걷기\n새로운 음악 듣기', '작은 생각도 나누면 이야기가 된다.'][i % 3], kind: 'text', items: [], color: colors[i] || 'default', labels: ['산책'], pinned: false, archived: false, trashed: false, sourceId: null };
       const n = await api(request, `/notes/${id}`, writer, 'PUT', { body, baseRevision: 0, mutationId: crypto.randomUUID() });
       if (i < 8) await api(request, `/notes/${id}/visibility`, writer, 'PATCH', { visibility: 'public', baseRevision: n.revision, mutationId: crypto.randomUUID() });
       if (!i) noteId = id;
@@ -49,7 +49,7 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     await visitor.getByRole('switch', { name: '팔로잉만', exact: true }).click();
     await expect(visitor.getByTestId('social-card')).toHaveCount(8);
     await expect(visitor.getByText('아직 나만 보는 생각')).toHaveCount(0);
-    await expect(visitor.getByText('개인라벨')).toHaveCount(0);
+    await expect(visitor.getByRole('button', { name: '#산책 공개 글 보기' })).toHaveCount(8);
     expect(await visitor.getByTestId('social-card').evaluateAll(cards => new Set(cards.map(card => card.getBoundingClientRect().x)).size)).toBe(2);
     expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await visitor.evaluate(() => window.scrollTo(0, 0));

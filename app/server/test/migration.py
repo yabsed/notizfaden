@@ -47,7 +47,7 @@ try:
         with urllib.request.urlopen(f'http://127.0.0.1:{API_PORT}/api/social/feed') as response:
             posts = json.load(response)['items']
         assert len(posts) == 1 and posts[0]['note']['revision'] == 7
-        assert posts[0]['note']['body']['labels'] == []
+        assert posts[0]['note']['body']['labels'] == ['개인라벨']
         os.killpg(process.pid, signal.SIGTERM); process.wait(timeout=10); process = None
     print('PASS: legacy data/credentials preserved, existing public link available, migration applied once across restarts')
 finally:

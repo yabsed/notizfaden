@@ -120,7 +120,7 @@ cursorFor t ident = T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" 
 
 -- Share exactly the same visibility and relationship filters across both sorts.
 feedFilter :: Query
-feedFilter = "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) "
+feedFilter = "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND (?::text IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(coalesce(n.body->'labels','[]'::jsonb)) AS tags(value) WHERE lower(btrim(ltrim(btrim(tags.value),'#')))=lower(?))) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',n.body->'labels',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) "
 
 data RankedNote = RankedNote Note Int64 UTCTime
 instance FromRow RankedNote where
@@ -148,7 +148,10 @@ feed :: Env -> Maybe Text -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Tex
 feed env h following author search sorting cursor = do
   viewer <- if fromMaybe False following then uId <$> auth env h else optionalUser env h
   let sort = fromMaybe "latest" sorting
-      params = [toField (fromMaybe False following),toField viewer,toField author,toField author,toField (T.take 100 $ T.strip $ fromMaybe "" search),toField viewer,toField viewer,toField viewer]
+      term = T.take 100 $ T.strip $ fromMaybe "" search
+      tag = if "#" `T.isPrefixOf` term then Just (cleanTag term) else Nothing
+      textTerm = if isJust tag then "" else term
+      params = [toField (fromMaybe False following),toField viewer,toField author,toField author,toField tag,toField tag,toField textTerm,toField viewer,toField viewer,toField viewer]
   unless (sort `elem` ["latest", "top"]) $ err err400 "정렬은 latest 또는 top을 사용해 주세요."
   if sort == "top" then do
     (anchor, score, before, ident) <- parseTopCursor cursor

@@ -1,13 +1,15 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 module Model
   ( Visibility(..), Item(..), NoteBody(..), Save(..), Sharing(..)
-  , Credentials(..), User(..), Note(..), publicNote, err
+  , Credentials(..), User(..), Note(..), publicNote, cleanTag, err
   ) where
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Char (toLower)
+import Data.List (nubBy)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time (UTCTime)
 import Database.PostgreSQL.Simple.FromRow
 import Database.PostgreSQL.Simple.Newtypes (Aeson(..))
@@ -35,7 +37,15 @@ data NoteBody = NoteBody
   , nRichText :: Maybe Value
   } deriving (Generic, Show, Eq)
 instance ToJSON NoteBody where toJSON = genericToJSON opts
-instance FromJSON NoteBody where parseJSON = genericParseJSON opts
+-- Retain the historical "labels" wire/storage key for existing clients and
+-- offline data. These values are tags; public notes expose them too.
+instance FromJSON NoteBody where
+  parseJSON value = do
+    body <- genericParseJSON opts value
+    pure body { nLabels = nubBy (\a b -> T.toLower a == T.toLower b) $ map cleanTag $ nLabels body }
+
+cleanTag :: Text -> Text
+cleanTag = T.strip . T.dropWhile (=='#') . T.strip
 
 data Save = Save { sBaseRevision :: Int, sMutationId :: Text, sBody :: NoteBody, sBodyFormat :: Maybe Int } deriving Generic
 instance FromJSON Save where parseJSON = genericParseJSON opts
@@ -51,10 +61,11 @@ instance ToJSON User where toJSON = genericToJSON opts
 instance FromRow User where fromRow = User <$> field <*> field
 
 data Note = Note Text Text Int Visibility NoteBody UTCTime Text
--- Personal organization metadata is never part of a shared note.
+-- Tags describe the shared content. Pinning, archiving and copy provenance
+-- remain personal organization metadata.
 publicNote :: Note -> Note
 publicNote (Note ident owner rev visibility body updated name) =
-  Note ident owner rev visibility (body {nLabels=[], nPinned=False, nArchived=False, nSourceId=Nothing}) updated name
+  Note ident owner rev visibility (body {nPinned=False, nArchived=False, nSourceId=Nothing}) updated name
 instance ToJSON Note where
   toJSON (Note ident owner rev visibility body updated name) = object
     ["id" .= ident, "author" .= User owner name, "revision" .= rev,

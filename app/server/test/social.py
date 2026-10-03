@@ -23,7 +23,7 @@ def register(): return call('/auth/register', 'POST', {'username': 'social_' + u
 a, b, c = register(), register(), register()
 at, bt, ct = (u['token'] for u in (a,b,c))
 ai, bi, ci = (u['user']['id'] for u in (a,b,c))
-body = {'title': 'public garden', 'content': 'a shared thought', 'kind': 'text', 'items': [], 'color': 'green', 'labels': ['secret-personal-label'], 'pinned': True, 'archived': True, 'trashed': False, 'sourceId': None}
+body = {'title': 'public garden', 'content': 'a shared thought', 'kind': 'text', 'items': [], 'color': 'green', 'labels': ['garden-topic'], 'pinned': True, 'archived': True, 'trashed': False, 'sourceId': None}
 created = []
 def make(content=body, public=True):
     ident = uid()
@@ -54,11 +54,12 @@ try:
     second = call('/notes/'+second['id'],'PUT',{'body':{**body,'trashed':True},'baseRevision':second['revision'],'mutationId':uid()},ct)
     assert ci not in people(), 'trashed notes do not qualify an author'
     assert secret['id'] not in ids(feed(q='private-secret-query'))
-    assert not feed(q='secret-personal-label')['items']
+    assert nid in ids(feed(q='#garden-topic'))
+    assert not feed(q='#garden')['items']
     for path in ['/public/'+nid, '/social/notes/'+nid]:
         result = call(path, token=bt)
         exposed = result.get('note', result)['body']
-        assert exposed['labels'] == [] and not exposed['pinned'] and not exposed['archived'] and exposed['sourceId'] is None
+        assert exposed['labels'] == body['labels'] and not exposed['pinned'] and not exposed['archived'] and exposed['sourceId'] is None
     assert next(x for x in call('/notes', token=at) if x['id']==nid)['body']['labels'] == body['labels']
     assert call('/social/profiles/'+ai)['posts'] == 1
     profile = call('/social/profile', 'PUT', {'displayName': '가든 작가', 'bio': '오늘의 기록', 'avatar': '🌱'}, at)
