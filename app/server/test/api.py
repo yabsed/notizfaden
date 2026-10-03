@@ -2,7 +2,7 @@
 import json, os, uuid, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
-BASE = os.getenv('NOTIZFADEN_TEST_API', os.getenv('TEUM_TEST_API', 'http://127.0.0.1:8081/api'))
+BASE = os.getenv('NOTIZFADEN_TEST_API', os.getenv('TEUM_TEST_API', 'http://127.0.0.1:8082/api'))
 def call(path, method='GET', data=None, token=None, expected=200):
     headers = {'Content-Type': 'application/json'}
     if token: headers['Authorization'] = 'Bearer ' + token
@@ -12,6 +12,8 @@ def call(path, method='GET', data=None, token=None, expected=200):
     except urllib.error.HTTPError as e: code, raw = e.code, e.read()
     assert code == expected, (path, code, raw.decode())
     return json.loads(raw) if raw else None
+
+assert call('/health').get('testDatabase') is True, 'Refusing to create test accounts outside a database ending in _test'
 
 def ident(): return str(uuid.uuid4())
 def credentials(): return {'username': 'test_' + uuid.uuid4().hex[:12], 'password': 'teum-test-password-2026'}

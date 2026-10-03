@@ -13,6 +13,7 @@
     "db": "bash scripts/db.sh",
     "start": "bash scripts/dev.sh",
     "android:sync": "npm --workspace client run android:sync",
-    "android:build": "bash scripts/android.sh"
+    "android:build": "bash scripts/android.sh",
+    "test:env": "bash scripts/test-env.sh"
   }
 }

@@ -14,7 +14,8 @@ import Servant
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 import Auth
-import Database (Env, openDatabase)
+import Database (Env, openDatabase, db)
+import Database.PostgreSQL.Simple (Only(..), query_)
 import Model
 import Notes
 import Social
@@ -37,7 +38,16 @@ server :: Env -> Server API
 server env = noteServer env :<|> socialServer env
 
 noteServer :: Env -> Server NoteAPI
-noteServer env = pure (object ["status" .= ("ok" :: Text)]) :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
+noteServer env = health env :<|> register env :<|> login env :<|> logout env :<|> auth env :<|> listOwn env :<|> saveNote env :<|> shareNote env :<|> listPublic env :<|> getPublic env
+
+-- Test clients must check the actual database, even when a proxy is misconfigured.
+health :: Env -> Handler Value
+health env = db env $ \c -> do
+  names <- query_ c "SELECT current_database()" :: IO [Only Text]
+  let isolated = case names of
+        [Only name] -> "_test" `T.isSuffixOf` name
+        _ -> False
+  pure $ object ["status" .= ("ok" :: Text), "testDatabase" .= isolated]
 
 main :: IO ()
 main = do

@@ -91,19 +91,25 @@ PC에서 `npm start`를 실행하고 휴대폰을 같은 네트워크에 연결�
 
 ## 검사
 
-API와 웹 개발 서버가 실행 중이어야 합니다. 오프라인 검사는 프로덕션 preview 서버도 필요합니다.
+검사는 개발 DB와 분리된 `notizfaden_social_test`에서 실행합니다. 개발 PostgreSQL(:55432)이 켜진 상태에서 별도 터미널로 테스트 환경을 시작하세요.
 
 ```sh
 cd app
-npm run build
-npm --workspace client run preview  # 별도 터미널, :5174
+npm run test:env  # 테스트 DB 생성, 빌드, API :8082 / 웹 :5175 / preview :5176
+```
+
+다른 터미널에서:
+
+```sh
+cd app
 npm test
 python3 server/test/api.py
-python3 server/test/social.py
+NOTIZFADEN_TEST_ADMIN=1 python3 server/test/social.py
+python3 server/test/demo.py  # 임시 DB에서 테스트 계정 정리·실계정 보존 검사
 python3 server/test/migration.py  # 별도 임시 DB를 만들고 제거
 ```
 
-브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API 검사는 임의의 테스트 계정을 만들고 공개 상태를 마지막에 해제/휴지통 처리합니다. 서버 검사 주소는 `NOTIZFADEN_TEST_API`로 바꿀 수 있습니다.
+브라우저 검사는 설치된 Chrome을 사용하며, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경변수로 경로를 바꿀 수 있습니다. API·브라우저 검사는 `/api/health`의 `testDatabase`를 먼저 확인합니다. 서버가 실제 연결한 DB 이름이 `_test`로 끝나지 않으면 계정을 만들기 전에 중단합니다. 기본 주소도 개발 서버 대신 격리된 서버를 가리킵니다. 서버 검사 주소는 `NOTIZFADEN_TEST_API`로 바꿀 수 있습니다.
 
 `npm run check`는 Svelte 컴포넌트와 TypeScript를 검사합니다. `npm run build`에도 이 검사가 포함됩니다.
 
@@ -151,3 +157,22 @@ npm run android:build -- http://YOUR_PC_IP:5173
 ```
 
 출력: `client/android/app/build/outputs/apk/debug/app-debug.apk`. URL을 생략하면 기기 내부 메모 기능만 사용할 수 있는 빌드가 됩니다. 실제 기기/에뮬레이터가 연결되어 있지 않아 APK 설치 후 한글 키보드와 시스템 뒤로 가기는 기기에서 추가 확인이 필요합니다.
+
+## 탐색과 시 샘플
+
+탐색에서 검색어가 없으면 공개 상태이며 휴지통에 없는 메모를 기준으로 **가장 최근 게시한 작성자 12명**을 보여줍니다. 작성자는 한 번만 표시하고 본인·양방향 차단·뮤트 계정은 제외합니다. 편집 시각은 순위에 영향을 주지 않습니다. 검색어가 있으면 이름·표시 이름에 해당 문자열을 포함한 사람(이름순, 최대 40명)과 제목·본문·작성자 정보에 일치하는 공개 메모(게시순)를 찾습니다. 공개 메모가 없는 계정도 이름 검색으로 찾을 수 있습니다. 개인 라벨과 비공개 내용은 검색하지 않습니다.
+
+`demo/poetry.json`에는 김소월의 『진달래꽃』(1925) 수록작 36편과 주제별 샘플 계정 6개가 있습니다. 원작은 위키문헌의 PD-old-70 표기를 확인했고, 위키문헌 현대어·전사본의 이용 조건은 CC BY-SA 4.0으로 표시합니다. 작품마다 작가·고정 판본 URL·출처·이용 조건을 본문에 넣습니다. 위키 마크업, 중복 제목, 편집자 주석을 제거하고 행갈이와 연 구분은 보존합니다. 샘플 계정 소개와 감상 댓글에도 샘플임을 표시합니다.
+
+```sh
+cd app
+python3 scripts/demo.py validate
+python3 scripts/fetch-poetry.py  # 고정된 위키문헌 판본에서 본문을 다시 추출해 검증 (네트워크 필요)
+python3 scripts/demo.py cleanup  # 삭제 후보와 보존 계정만 표시
+python3 scripts/demo.py cleanup --apply  # 전체 DB 백업 후 검증된 테스트 계정만 삭제
+python3 scripts/demo.py seed  # 개발 API :8081에 샘플 6계정 / 36편 / 좋아요 6개 / 댓글 6개
+```
+
+정리는 계정 이름의 정확한 테스트 생성 형식과 테스트 비밀번호의 PBKDF2 해시를 모두 대조합니다. 같은 접두사여도 일치하지 않는 계정은 보존합니다. 삭제 전 전체 DB를 `.data/backups/before-demo-*.dump`에 저장하고, 관련 테스트 데이터는 한 트랜잭션에서 정리합니다. 다른 사용자가 복사해 둔 메모 본문은 유지합니다. `--database`로 정리 대상 DB를 지정할 수 있습니다.
+
+시 주입은 Python에서 일반 Haskell API를 호출합니다. 고정된 계정 이름과 UUID로 재실행해도 중복되지 않으며, 같은 본문은 다시 저장하지 않습니다. 임의 생성한 계정 비밀번호·사용자 ID는 Git에서 제외된 `.data/poetry-demo-state.json`(권한 600)에만 저장합니다. 이 파일은 재실행을 위해 보관하세요. 같은 이름의 타 계정은 가져오지 않습니다. 다른 DB에서 실행할 때는 `--api`와 별도의 `--state` 파일을 함께 지정하세요.

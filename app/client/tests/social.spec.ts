@@ -98,7 +98,11 @@ test('Keep cards connect profiles, follows, reactions, replies, notifications an
     expect(await visitor.locator('.social-grid').evaluate(e => getComputedStyle(e).columnCount)).toBe('1');
     await visitor.getByRole('button', { name: '카드 보기', exact: true }).click();
     await visitor.locator('.bottom-nav').getByRole('button', { name: '탐색', exact: true }).click();
+    await expect(visitor.getByRole('heading', { name: '최근 공개 메모를 쓴 사람들', exact: true })).toBeVisible();
+    await expect(visitor.locator('.people-grid')).toContainText('산책하는 기록가');
     await visitor.getByRole('searchbox').fill('산책하는 기록가');
+    await expect(visitor.getByRole('heading', { name: '사람 검색 결과', exact: true })).toBeVisible();
+    await expect(visitor.getByRole('heading', { name: '메모 검색 결과', exact: true })).toBeVisible();
     await expect(visitor.locator('.people-grid')).toContainText('산책하는 기록가');
     await visitor.locator('.people-grid').getByRole('button').filter({ hasText: writer.user.name }).click();
     await visitor.getByLabel('사용자 메뉴', { exact: true }).click();

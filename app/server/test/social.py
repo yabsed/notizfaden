@@ -5,7 +5,7 @@ import json, os, uuid, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
-BASE = os.getenv('NOTIZFADEN_TEST_API', 'http://127.0.0.1:8081/api')
+BASE = os.getenv('NOTIZFADEN_TEST_API', 'http://127.0.0.1:8082/api')
 def call(path, method='GET', data=None, token=None, expected=200):
     headers = {'Content-Type': 'application/json'}
     if token: headers['Authorization'] = 'Bearer ' + token
@@ -15,6 +15,8 @@ def call(path, method='GET', data=None, token=None, expected=200):
     except urllib.error.HTTPError as e: code, raw = e.code, e.read()
     assert code == expected, (path, code, raw.decode())
     return json.loads(raw) if raw else None
+
+assert call('/health').get('testDatabase') is True, 'Refusing to create test accounts outside a database ending in _test'
 
 def uid(): return str(uuid.uuid4())
 def register(): return call('/auth/register', 'POST', {'username': 'social_' + uuid.uuid4().hex[:12], 'password': 'social-test-password-2026'})
@@ -38,6 +40,19 @@ def ids(page): return [x['note']['id'] for x in page['items']]
 
 try:
     n = make(); nid = n['id']; secret = make({**body, 'title': 'private-secret-query'}, False)
+    def people(token=bt, q=''):
+        return [p['id'] for p in call('/social/people?'+urlencode({'q':q}),token=token)]
+    assert people()[0] == ai and ai not in people(at)
+    assert bi not in people(at) and ci not in people(), 'unpublished accounts are not discoveries'
+    assert ci in people(q=c['user']['name']), 'search can find accounts without public notes'
+    assert people(q='   ') == people(), 'whitespace is discovery'
+    second = call('/notes/'+uid(),'PUT',{'body':body,'baseRevision':0,'mutationId':uid()},ct)
+    second = call('/notes/'+second['id']+'/visibility','PATCH',{'visibility':'public','baseRevision':second['revision'],'mutationId':uid()},ct)
+    assert people()[:2] == [ci,ai], 'authors sort by most recent publication'
+    n = call('/notes/'+nid,'PUT',{'body':{**body,'content':'edited later'},'baseRevision':n['revision'],'mutationId':uid()},at)
+    assert people()[:2] == [ci,ai], 'editing must not promote discovery'
+    second = call('/notes/'+second['id'],'PUT',{'body':{**body,'trashed':True},'baseRevision':second['revision'],'mutationId':uid()},ct)
+    assert ci not in people(), 'trashed notes do not qualify an author'
     assert secret['id'] not in ids(feed(q='private-secret-query'))
     assert not feed(q='secret-personal-label')['items']
     for path in ['/public/'+nid, '/social/notes/'+nid]:
@@ -80,6 +95,7 @@ try:
     call('/social/notifications/'+str(max(x['id'] for x in notices['items'])),'PUT',token=at,expected=204)
     assert call('/social/notifications',token=at)['unread']==0
     n=visibility(n,'private')
+    assert ai not in people(), 'private notes do not qualify an author'
     call('/social/notes/'+nid,token=at,expected=404)
     assert nid not in [r['id'] for r in call('/social/reactions',token=at)]
     for path in ['/public/'+nid,'/social/notes/'+nid,'/social/notes/'+nid+'/replies']:
@@ -96,11 +112,14 @@ try:
     call('/social/notes/'+nid+'/like','PUT',{'enabled':True},bt)
     # Mutes hide feeds and incoming notifications; direct links remain readable.
     relation(ai,'mute'); assert nid not in ids(feed()); call('/social/notes/'+nid,token=bt)
+    assert ai not in people() and ai not in people(q=a['user']['name'])
     relation(bi,'mute',token=at); assert not call('/social/notifications',token=at)['items']
     assert call('/social/notes/'+nid,token=at)['replies']==0
     relation(ai,'mute',False); relation(bi,'mute',False,at)
     # Blocks are symmetric, remove follows, and also protect the legacy public/fork API.
     relation(ai,'block'); assert nid not in ids(feed())
+    assert ai not in people() and ai not in people(q=a['user']['name'])
+    assert bi not in people(at, b['user']['name']), 'blocks exclude both directions'
     assert nid not in [n['id'] for n in call('/public',token=bt)]
     for path in ['/public/'+nid,'/social/notes/'+nid,'/social/notes/'+nid+'/replies']:
         call(path,token=bt,expected=404)
@@ -115,6 +134,7 @@ try:
     assert all(x['kind']!='reply' for x in call('/social/notifications',token=at)['items'])
     # Feed and conversation cursors never duplicate entries across pages.
     for i in range(31): make({**body,'title':f'page {i}'})
+    assert people().count(ai) == 1 and len(people()) <= 12
     page1=feed(author=ai); page2=feed(author=ai,cursor=page1['cursor'])
     assert len(page1['items'])==30 and len(page2['items'])==2 and not set(ids(page1)) & set(ids(page2)) and page2['cursor'] is None
     call('/social/feed?cursor=invalid',expected=400)

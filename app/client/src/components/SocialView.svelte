@@ -120,9 +120,9 @@
   {#if view === 'feed'}
     <div class="social-tabs"><button class:selected={mode === 'all'} onclick={() => mode = 'all'}>전체</button><button class:selected={mode === 'following'} onclick={() => { if (!session) onLogin(); else mode = 'following'; }}>팔로잉</button><button class="refresh" aria-label="피드 새로고침" disabled={loading} onclick={() => load()}><RefreshCw size={17} class={loading ? 'spin' : ''}/></button></div>
   {:else if view === 'explore'}
-    <div class="section-top"><h2>생각이 닮은 사람들</h2><button class="text-button" disabled={loading} onclick={() => load()}>새로고침</button></div>
+    <div class="section-top"><h2>{query.trim() ? '사람 검색 결과' : '최근 공개 메모를 쓴 사람들'}</h2><button class="text-button" disabled={loading} onclick={() => load()}>새로고침</button></div>
     <div class="people-grid">{#each people as person (person.id)}<Person {person} onOpen={() => onProfile(person.id)}/>{/each}</div>
-    {#if !loading && !people.length}<p class="hint">검색한 사람을 찾지 못했어요.</p>{/if}<h2 class="section-title">함께 나누는 메모</h2>
+    {#if !loading && !people.length}<p class="hint">{query.trim() ? '검색한 사람을 찾지 못했어요.' : '아직 공개 메모를 쓴 다른 사람이 없어요.'}</p>{/if}<h2 class="section-title">{query.trim() ? '메모 검색 결과' : '최근 공개 메모'}</h2>
   {:else if view === 'profile'}
     {#if profile}
       <div class="profile-head">
@@ -155,7 +155,7 @@
   {#if view === 'feed' || view === 'explore' || (view === 'profile' && !profileOnly)}
     <div class="social-grid" class:list>{#each posts as post (post.note.id)}<NoteCard note={post.note} own={false} author={post.profile} testId="social-card" reactions={post} onOpen={() => onOpenNote(post.note.id)} onProfile={() => onProfile(post.profile.id)} onLike={() => like(post)} onConversation={() => onRead(post.note.id)}/>{/each}</div>
     {#if cursor}<button class="load-more" disabled={loading} onclick={() => load(true)}>{loading ? '불러오는 중…' : '메모 더 보기'}</button>{/if}
-    {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{mode === 'following' && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : '아직 공개된 메모가 없어요'}</h2><p>탐색에서 사람을 만나거나, 내 메모를 공개해 보세요.</p></div>{/if}
+    {#if !loading && !error && !posts.length}<div class="social-empty"><Compass size={38}/><h2>{query.trim() && view !== 'profile' ? '검색한 공개 메모를 찾지 못했어요' : mode === 'following' && view === 'feed' ? '팔로우로 메모장을 연결해 보세요' : '아직 공개된 메모가 없어요'}</h2><p>{query.trim() && view !== 'profile' ? '다른 단어나 이름으로 검색해 보세요.' : '탐색에서 사람을 만나거나, 내 메모를 공개해 보세요.'}</p></div>{/if}
   {/if}
   {#if loading}<p class="hint" role="status">생각을 불러오고 있어요…</p>{/if}
 </section>

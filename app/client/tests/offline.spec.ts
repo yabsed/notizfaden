@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-// Production preview must be running on :5174. This verifies the service worker,
+// Production preview must be running on :5176. This verifies the service worker,
 // not Vite's development server (which intentionally has no service worker).
 test('installed web shell and notes reopen fully offline', async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage();
-  await page.goto(process.env.NOTIZFADEN_PREVIEW_URL || 'http://localhost:5174/');
+  await page.goto(process.env.NOTIZFADEN_PREVIEW_URL || 'http://localhost:5176/');
   await expect(page.getByTestId('note-card')).toHaveCount(8);
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBeTruthy();

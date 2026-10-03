@@ -12,6 +12,7 @@ playwright-report/
 test-results/
 
 *.tsbuildinfo
+__pycache__/
 dist-android/
 .env.*
 !.env.example

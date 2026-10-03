@@ -121,7 +121,7 @@ feed env h following author search cursor = do
   viewer <- optionalUser env h
   (before, ident) <- parseCursor cursor
   db env $ \c -> withTransaction c $ do
-    ns <- query c (noteQuery <> "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR n.owner_id=? OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) AND (?::timestamptz IS NULL OR (n.published_at,n.id)<(?,?)) ORDER BY n.published_at DESC,n.id DESC LIMIT 31") [toField (fromMaybe False following),toField viewer,toField viewer,toField author,toField author,toField (T.take 100 $ fromMaybe "" search),toField viewer,toField viewer,toField viewer,toField before,toField before,toField ident]
+    ns <- query c (noteQuery <> "WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND (?=false OR n.owner_id=? OR EXISTS(SELECT 1 FROM follows WHERE actor_id=? AND target_id=n.owner_id)) AND (?::text IS NULL OR n.owner_id=?) AND position(lower(?) in lower(concat(n.body->>'title',' ',n.body->>'content',' ',n.body->'items',' ',u.name,' ',u.display_name)))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=n.owner_id) OR (b.target_id=? AND b.actor_id=n.owner_id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=n.owner_id) AND (?::timestamptz IS NULL OR (n.published_at,n.id)<(?,?)) ORDER BY n.published_at DESC,n.id DESC LIMIT 31") [toField (fromMaybe False following),toField viewer,toField viewer,toField author,toField author,toField (T.take 100 $ T.strip $ fromMaybe "" search),toField viewer,toField viewer,toField viewer,toField before,toField before,toField ident]
     items <- mapM (post c viewer) (take 30 ns)
     next <- if length ns <= 30 then pure Nothing else case last (take 30 ns) of
       Note nid _ _ _ _ _ _ -> do
@@ -132,8 +132,13 @@ feed env h following author search cursor = do
 people :: Env -> Maybe Text -> Maybe Text -> Handler [Value]
 people env h search = do
   viewer <- optionalUser env h
+  let term = T.take 100 $ T.strip $ fromMaybe "" search
   db env $ \c -> do
-    ids <- query c "SELECT u.id FROM users u WHERE position(lower(?) in lower(u.name || ' ' || u.display_name))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE b.actor_id=u.id AND b.target_id=?) ORDER BY u.name LIMIT 40" (T.take 100 $ fromMaybe "" search,viewer)
+    -- Discovery is based on publication, not edits or alphabetical account names.
+    -- Search still finds matching accounts that have never published a note.
+    ids <- if T.null term
+      then query c "SELECT u.id FROM users u JOIN notes n ON n.owner_id=u.id WHERE n.visibility='public' AND NOT (n.body->>'trashed')::boolean AND u.id<>? AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=u.id) OR (b.target_id=? AND b.actor_id=u.id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=u.id) GROUP BY u.id ORDER BY max(n.published_at) DESC,u.id LIMIT 12" (viewer,viewer,viewer,viewer)
+      else query c "SELECT u.id FROM users u WHERE position(lower(?) in lower(u.name || ' ' || u.display_name))>0 AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor_id=? AND b.target_id=u.id) OR (b.target_id=? AND b.actor_id=u.id)) AND NOT EXISTS(SELECT 1 FROM mutes m WHERE m.actor_id=? AND m.target_id=u.id) ORDER BY u.name,u.id LIMIT 40" (term,viewer,viewer,viewer)
     mapM (\(Only ident) -> profile c viewer ident) ids
 
 getProfile :: Env -> Maybe Text -> Text -> Handler Value
