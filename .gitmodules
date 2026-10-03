@@ -4,3 +4,6 @@
 [submodule "submodules/googlekeepclone"]
 	path = submodules/googlekeepclone
 	url = https://github.com/anselm94/googlekeepclone.git
+[submodule "submodules/tiptap"]
+	path = submodules/tiptap
+	url = https://github.com/ueberdosis/tiptap.git
