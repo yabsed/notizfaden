@@ -7,3 +7,12 @@
 [submodule "submodules/tiptap"]
 	path = submodules/tiptap
 	url = https://github.com/ueberdosis/tiptap.git
+[submodule "app/submodules/svelte-realworld"]
+	path = app/submodules/svelte-realworld
+	url = https://github.com/sveltejs/realworld.git
+[submodule "app/submodules/misskey"]
+	path = app/submodules/misskey
+	url = https://github.com/misskey-dev/misskey.git
+[submodule "submodules/bluesky-social-app"]
+	path = submodules/bluesky-social-app
+	url = https://github.com/bluesky-social/social-app.git
